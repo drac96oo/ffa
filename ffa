@@ -8,7 +8,7 @@ local LocalPlayer = Players.LocalPlayer
 local Mouse = LocalPlayer:GetMouse()
 
 -- Settings
-local VIPUsers = { "draconvm", "K3TCHUPSS" }
+local VIPUsers = { "draconvm", "Sypmorph" }
 local BringTargets = {}
 local FrozenPlayers = {}
 local targetedPlayers = {}
