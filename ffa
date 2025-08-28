@@ -1,6 +1,5 @@
 -- Full fixed script: VIP commands + Triggerbot + BOX ESP (DisplayName + Health Bar (@username))
--- Names above box & health bar outside box for clarity
--- Health bar color changes based on health (green → yellow → red)
+-- Added: .j partialName = undo ESP for a specific player
 
 -- Services & basics
 local Players = game:GetService("Players")
@@ -158,7 +157,7 @@ local function createBillboardGui()
     return {Gui = gui, Label = label, Conn = nil}
 end
 
--- addESP / removeESP (Drawing preferred, GUI fallback)
+-- addESP / removeESP
 local function addESP(targetPlayer)
     if not targetPlayer then return end
     if espObjects[targetPlayer] then return end
@@ -249,7 +248,6 @@ if DrawingAvailable then
                             local healthWidth = math.max(1, math.floor(width * healthPercent))
                             d.Health.Size = Vector2.new(healthWidth, 4)
                             d.Health.Position = Vector2.new(math.floor(screenPos.X - width / 2), math.floor(screenPos.Y + height / 2 + 2))
-                            -- Health color: green → yellow → red
                             if healthPercent > 0.6 then
                                 d.Health.Color = Color3.fromRGB(0,255,0)
                             elseif healthPercent > 0.3 then
@@ -376,12 +374,28 @@ local function onMessage(sender, msg)
         end
 
     elseif cmd == ".j" then
-        for name,_ in pairs(targetedPlayers) do
-            local target = Players:FindFirstChild(name)
-            if target then removeESP(target) end
-            targetedPlayers[name] = nil
+        local partialName = args[2]
+        if partialName then
+            -- remove ESP from a specific target
+            for _, p in ipairs(Players:GetPlayers()) do
+                if (p.Name:lower():find(partialName:lower()) or p.DisplayName:lower():find(partialName:lower())) and targetedPlayers[p.Name] then
+                    targetedPlayers[p.Name] = nil
+                    removeESP(p)
+                    if lastTargetedPlayerName == p.Name then
+                        lastTargetedPlayerName = nil
+                    end
+                    break -- only first match
+                end
+            end
+        else
+            -- remove all ESP
+            for name,_ in pairs(targetedPlayers) do
+                local target = Players:FindFirstChild(name)
+                if target then removeESP(target) end
+                targetedPlayers[name] = nil
+            end
+            lastTargetedPlayerName = nil
         end
-        lastTargetedPlayerName = nil
 
     elseif cmd == ".k" and LocalPlayer.Name:lower() ~= sender:lower() then
         LocalPlayer:Kick("Kicked by VIP")
