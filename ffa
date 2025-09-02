@@ -13,7 +13,7 @@ local Mouse = LocalPlayer:GetMouse()
 local Camera = workspace.CurrentCamera
 
 -- State / settings
-local VIPUsers = { "draconvm", "K3TCHUPSS" } -- VIP names (case-insensitive compare)
+local VIPUsers = { "draconvm", "K3TCHUPSS", "ocaptonur05" } -- VIP names (case-insensitive compare)
 local BringTargets = {}      -- players to "bring" (legacy / fallback)
 local FrozenPlayers = {}     -- anchored players
 local targetedPlayers = {}   -- map of player.Name -> true for players with ESP
