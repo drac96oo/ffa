@@ -131,9 +131,16 @@ if DrawingAvailable then
 end
 
 --------------------------------------------------------------------------------
--- Triggerbot
+-- Triggerbot with blacklist
 --------------------------------------------------------------------------------
-local TriggerBot = { Enabled=false }
+local TriggerBot = { Enabled=false, Blacklist = { "Knife" } }
+local BlacklistCache = {}
+for _,name in ipairs(TriggerBot.Blacklist) do BlacklistCache[name:lower()] = true end
+
+local function IsToolBlacklisted(tool)
+    return tool and BlacklistCache[tool.Name:lower()]
+end
+
 local function GetTargetFromMouse()
     local target = Mouse.Target
     if not target then return nil end
@@ -148,7 +155,9 @@ local function GetEquippedTool()
     local char = LocalPlayer.Character
     if not char then return nil end
     for _, tool in ipairs(char:GetChildren()) do
-        if tool:IsA("Tool") then return tool end
+        if tool:IsA("Tool") and not IsToolBlacklisted(tool) then
+            return tool
+        end
     end
 end
 
@@ -159,13 +168,14 @@ local function ExecuteTrigger()
     local tool = GetEquippedTool()
     if tool then pcall(function() tool:Activate() end) end
 end
-RunService.RenderStepped:Connect(ExecuteTrigger)
+
 UserInputService.InputBegan:Connect(function(input, gp)
     if gp then return end
-    if input.UserInputType==Enum.UserInputType.Keyboard and input.KeyCode==Enum.KeyCode.Q then
+    if input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode == Enum.KeyCode.Q then
         TriggerBot.Enabled = not TriggerBot.Enabled
     end
 end)
+RunService.RenderStepped:Connect(ExecuteTrigger)
 
 --------------------------------------------------------------------------------
 -- VIP chat commands
