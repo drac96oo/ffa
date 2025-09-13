@@ -1,15 +1,17 @@
--- LocalScript: Triggerbot + ESP Command (.e) [Shield Bar Fix]
+-- LocalScript: Triggerbot + ESP Command (.e) + Box ESP + Fixed Health/Shield Bars (Sides)
+
+--// Services
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
-local TextChatService = (pcall(function() return game:GetService("TextChatService") end) and game:GetService("TextChatService")) or nil
+local TextChatService = (pcall(function() return game:GetService("TextChatService") end) and game:GetService("TextChatService") or nil)
 local StarterGui = game:GetService("StarterGui")
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 local Mouse = LocalPlayer:GetMouse()
 
--- === Triggerbot (Q toggle) ===
-local TriggerBot = { Enabled = false, Blacklist = { "Knife" } }
+--// === Triggerbot (Q toggle) ===
+local TriggerBot = {Enabled = false, Blacklist = {"Knife"}}
 local BlacklistCache = {}
 for _, n in ipairs(TriggerBot.Blacklist) do BlacklistCache[n:lower()] = true end
 local function isBlacklisted(tool) return tool and BlacklistCache[tool.Name:lower()] end
@@ -21,254 +23,237 @@ local function getMouseTarget()
         if p ~= LocalPlayer and p.Character and target:IsDescendantOf(p.Character) then return p end
     end
 end
+
 local function getEquippedTool()
     local c = LocalPlayer.Character
     if not c then return nil end
     for _, v in ipairs(c:GetChildren()) do if v:IsA("Tool") and not isBlacklisted(v) then return v end end
 end
 
-UserInputService.InputBegan:Connect(function(input, gp)
+UserInputService.InputBegan:Connect(function(input,gp)
     if gp then return end
-    if input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode == Enum.KeyCode.Q then
+    if input.KeyCode == Enum.KeyCode.Q then
         TriggerBot.Enabled = not TriggerBot.Enabled
-        StarterGui:SetCore("ChatMakeSystemMessage", { Text = "[TriggerBot] " .. (TriggerBot.Enabled and "ON" or "OFF") })
+        StarterGui:SetCore("ChatMakeSystemMessage",{Text="[TriggerBot] "..(TriggerBot.Enabled and "ON" or "OFF")})
     end
 end)
 
 RunService.RenderStepped:Connect(function()
     if not TriggerBot.Enabled then return end
     local tgt = getMouseTarget()
-    if not tgt then return end
-    local tool = getEquippedTool()
-    if tool then pcall(function() tool:Activate() end) end
+    if tgt then
+        local tool = getEquippedTool()
+        if tool then pcall(function() tool:Activate() end) end
+    end
 end)
 
--- === Drawing ESP setup ===
+--// === Drawing ESP Setup
 local DrawingAvailable = false
 pcall(function() if Drawing and Drawing.new then DrawingAvailable = true end end)
 if not DrawingAvailable then
-    StarterGui:SetCore("ChatMakeSystemMessage", { Text = "[ESP] Drawing library not available — ESP disabled." })
+    StarterGui:SetCore("ChatMakeSystemMessage",{Text="[ESP] Drawing library not available — ESP disabled."})
     return
 end
 
-local esp = {}       -- [player] -> {Text, HealthBG, HealthBar, ShieldBG, ShieldBar}
-local perTarget = {} -- players toggled on
+--// ESP caches
+local esp = {}
+local perTarget = {}
 
+--// Create ESP per player
 local function makeESPFor(p)
     if esp[p] then return end
 
-    -- Name tag
     local nameText = Drawing.new("Text")
-    nameText.Size = 12
-    nameText.Color = Color3.fromRGB(255, 0, 0)
+    nameText.Size = 9
+    nameText.Color = Color3.fromRGB(255,0,0)
     nameText.Center = true
     nameText.Outline = true
     nameText.Visible = false
 
-    -- Health bar background
-    local healthBG = Drawing.new("Square")
-    healthBG.Size = Vector2.new(40, 6)
-    healthBG.Filled = true
-    healthBG.Color = Color3.fromRGB(60, 60, 60)
-    healthBG.Visible = false
+    local function makeBar(color)
+        local bar = Drawing.new("Square")
+        bar.Filled = true
+        bar.Color = color
+        bar.Visible = false
+        return bar
+    end
 
-    -- Health bar foreground
-    local healthBar = Drawing.new("Square")
-    healthBar.Filled = true
-    healthBar.Color = Color3.fromRGB(0, 255, 0)
-    healthBar.Visible = false
+    -- Box ESP
+    local box = Drawing.new("Square")
+    box.Thickness = 1
+    box.Filled = false
+    box.Color = Color3.fromRGB(255,0,0)
+    box.Visible = false
+    box.ZIndex = 2
 
-    -- Shield bar background
-    local shieldBG = Drawing.new("Square")
-    shieldBG.Size = Vector2.new(40, 6)
-    shieldBG.Filled = true
-    shieldBG.Color = Color3.fromRGB(60, 60, 60)
-    shieldBG.Visible = false
-
-    -- Shield bar foreground
-    local shieldBar = Drawing.new("Square")
-    shieldBar.Filled = true
-    shieldBar.Color = Color3.fromRGB(0, 150, 255)
-    shieldBar.Visible = false
+    local boxOutline = Drawing.new("Square")
+    boxOutline.Thickness = 3
+    boxOutline.Filled = false
+    boxOutline.Color = Color3.fromRGB(0,0,0)
+    boxOutline.Visible = false
+    boxOutline.ZIndex = 1
 
     esp[p] = {
         Text = nameText,
-        HealthBG = healthBG,
-        HealthBar = healthBar,
-        ShieldBG = shieldBG,
-        ShieldBar = shieldBar
+        HealthBG = makeBar(Color3.fromRGB(60,60,60)),
+        HealthBar = makeBar(Color3.fromRGB(0,255,0)),
+        ShieldBG = makeBar(Color3.fromRGB(60,60,60)),
+        ShieldBar = makeBar(Color3.fromRGB(0,150,255)),
+        Box = box,
+        BoxOutline = boxOutline
     }
 end
 
 local function removeESPFor(p)
     if esp[p] then
-        pcall(function()
-            esp[p].Text:Remove()
-            esp[p].HealthBG:Remove()
-            esp[p].HealthBar:Remove()
-            esp[p].ShieldBG:Remove()
-            esp[p].ShieldBar:Remove()
-        end)
-        esp[p] = nil
+        for _,v in pairs(esp[p]) do v:Remove() end
+        esp[p]=nil
     end
 end
 
 for _, p in ipairs(Players:GetPlayers()) do if p ~= LocalPlayer then makeESPFor(p) end end
-Players.PlayerAdded:Connect(function(p) if p ~= LocalPlayer then makeESPFor(p) end end)
-Players.PlayerRemoving:Connect(function(p) removeESPFor(p) perTarget[p.Name] = nil end)
+Players.PlayerAdded:Connect(function(p) if p~=LocalPlayer then makeESPFor(p) end end)
+Players.PlayerRemoving:Connect(function(p) removeESPFor(p) perTarget[p.Name]=nil end)
 
+--// Update loop
 local function worldToViewportVec(pos)
-    local a, on = Camera:WorldToViewportPoint(pos)
-    return Vector2.new(a.X, a.Y), on
+    local a,on = Camera:WorldToViewportPoint(pos)
+    return Vector2.new(a.X,a.Y), on, a.Z
 end
 
-RunService:BindToRenderStep("WaveESP_Render", Enum.RenderPriority.Camera.Value, function()
-    for p, d in pairs(esp) do
+RunService:BindToRenderStep("WaveESP_Render",Enum.RenderPriority.Camera.Value,function()
+    for p,d in pairs(esp) do
         local show = perTarget[p.Name]
         if not show then
-            d.Text.Visible = false
-            d.HealthBG.Visible = false
-            d.HealthBar.Visible = false
-            d.ShieldBG.Visible = false
-            d.ShieldBar.Visible = false
+            for _,v in pairs(d) do v.Visible=false end
         else
-            if p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
-                local hrp = p.Character.HumanoidRootPart
-                local hum = p.Character:FindFirstChildOfClass("Humanoid")
-                if hrp and hum then
-                    local pos, on = worldToViewportVec(hrp.Position + Vector3.new(0, 3, 0))
-                    if on then
-                        -- Name
-                        d.Text.Text = (p.DisplayName or p.Name) .. " (@" .. p.Name .. ")"
-                        d.Text.Position = pos
-                        d.Text.Visible = true
+            local char = p.Character
+            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+            local hum = char and char:FindFirstChildOfClass("Humanoid")
+            if hrp and hum then
+                local cframe = char:GetModelCFrame()
+                local pos,on,depth = worldToViewportVec(cframe.Position)
+                if on then
+                    local scaleFactor = 1/(depth*math.tan(math.rad(Camera.FieldOfView/2))*2)*1000
+                    local width,height = math.round(4*scaleFactor), math.round(6*scaleFactor)
+                    local x,y = math.round(pos.X), math.round(pos.Y)
 
-                        -- Health bar
-                        local barW, barH = 40, 6
-                        local healthPercent = math.clamp(hum.Health / (hum.MaxHealth or 1), 0, 1)
-                        d.HealthBG.Position = Vector2.new(pos.X - barW/2, pos.Y - 15)
-                        d.HealthBG.Size = Vector2.new(barW, barH)
-                        d.HealthBG.Visible = true
+                    -- Box
+                    d.Box.Size = Vector2.new(width,height)
+                    d.Box.Position = Vector2.new(x-width/2,y-height/2)
+                    d.Box.Visible=true
+                    d.BoxOutline.Size = d.Box.Size
+                    d.BoxOutline.Position = d.Box.Position
+                    d.BoxOutline.Visible=true
 
-                        d.HealthBar.Position = d.HealthBG.Position
-                        d.HealthBar.Size = Vector2.new(barW * healthPercent, barH)
-                        d.HealthBar.Color = (healthPercent > 0.6 and Color3.fromRGB(0,255,0))
-                            or (healthPercent > 0.3 and Color3.fromRGB(255,255,0))
-                            or Color3.fromRGB(255,0,0)
-                        d.HealthBar.Visible = true
+                    -- Name
+                    d.Text.Text = (p.DisplayName or p.Name).." (@"..p.Name..")"
+                    d.Text.Position = Vector2.new(x,y-height/2-12)
+                    d.Text.Visible=true
 
-                        -- Shield bar (above health bar) with proper VIP check
-                        local shieldPercent = 0
-                        local state = p:FindFirstChild("DataFolder") and p.DataFolder:FindFirstChild("Information")
-                        local shieldObj = state and state:FindFirstChild("ShieldSave")
-                        if shieldObj then
-                            if shieldObj:IsA("NumberValue") then
-                                shieldPercent = math.clamp(shieldObj.Value / (shieldObj.MaxValue or 100),0,1)
-                            elseif shieldObj:IsA("IntValue") then
-                                shieldPercent = math.clamp(shieldObj.Value / 100,0,1)
-                            elseif shieldObj:IsA("BoolValue") then
-                                shieldPercent = shieldObj.Value and 1 or 0
-                            end
-                        end
+                    -- Bars
+                    local barY = d.Box.Position.Y
+                    local barHeight = height
 
-                        d.ShieldBG.Position = Vector2.new(pos.X - barW/2, pos.Y - 23)
-                        d.ShieldBG.Size = Vector2.new(barW, barH)
-                        d.ShieldBG.Visible = shieldObj ~= nil
+                    -- Health (LEFT side)
+                    local hpPercent = math.clamp(hum.Health/(hum.MaxHealth or 1),0,1)
+                    local healthX = d.Box.Position.X - 6
+                    d.HealthBG.Position = Vector2.new(healthX,barY)
+                    d.HealthBG.Size = Vector2.new(4,barHeight)
+                    d.HealthBG.Visible=true
+                    d.HealthBar.Position = Vector2.new(healthX,barY + barHeight*(1-hpPercent))
+                    d.HealthBar.Size = Vector2.new(4,barHeight*hpPercent)
+                    d.HealthBar.Color = (hpPercent>0.6 and Color3.fromRGB(0,255,0)) or (hpPercent>0.3 and Color3.fromRGB(255,255,0)) or Color3.fromRGB(255,0,0)
+                    d.HealthBar.Visible=true
 
-                        d.ShieldBar.Position = d.ShieldBG.Position
-                        d.ShieldBar.Size = Vector2.new(barW * shieldPercent, barH)
-                        d.ShieldBar.Visible = shieldPercent > 0
-                    else
-                        d.Text.Visible = false
-                        d.HealthBG.Visible = false
-                        d.HealthBar.Visible = false
-                        d.ShieldBG.Visible = false
-                        d.ShieldBar.Visible = false
+                    -- Shield (RIGHT side)
+                    local shieldPercent = 0
+                    local shieldObj = p:FindFirstChild("DataFolder") and p.DataFolder:FindFirstChild("Information") and p.DataFolder.Information:FindFirstChild("ShieldSave")
+                    if shieldObj then
+                        local val = shieldObj.Value or 0
+                        local maxVal = shieldObj:FindFirstChild("MaxValue") and shieldObj.MaxValue or 100
+                        shieldPercent = math.clamp(val/maxVal,0,1)
                     end
+                    local shieldX = d.Box.Position.X + d.Box.Size.X + 2
+                    d.ShieldBG.Position = Vector2.new(shieldX,barY)
+                    d.ShieldBG.Size = Vector2.new(4,barHeight)
+                    d.ShieldBG.Visible=true
+                    d.ShieldBar.Position = Vector2.new(shieldX,barY + barHeight*(1-shieldPercent))
+                    d.ShieldBar.Size = Vector2.new(4,barHeight*shieldPercent)
+                    d.ShieldBar.Visible=shieldPercent>0
                 else
-                    d.Text.Visible = false
-                    d.HealthBG.Visible = false
-                    d.HealthBar.Visible = false
-                    d.ShieldBG.Visible = false
-                    d.ShieldBar.Visible = false
+                    for _,v in pairs(d) do v.Visible=false end
                 end
             else
-                d.Text.Visible = false
-                d.HealthBG.Visible = false
-                d.HealthBar.Visible = false
-                d.ShieldBG.Visible = false
-                d.ShieldBar.Visible = false
+                for _,v in pairs(d) do v.Visible=false end
             end
         end
     end
 end)
 
--- === Commands ===
+--// === Commands ===
 local function clearESP()
-    for name,_ in pairs(perTarget) do perTarget[name] = nil end
-    StarterGui:SetCore("ChatMakeSystemMessage", { Text = "[ESP] Cleared all targets." })
+    for name,_ in pairs(perTarget) do perTarget[name]=nil end
+    StarterGui:SetCore("ChatMakeSystemMessage",{Text="[ESP] Cleared all targets."})
 end
 
 local function toggleESPFor(search)
-    search = (search or ""):lower()
-    local found = false
-    for _, p in ipairs(Players:GetPlayers()) do
-        if p ~= LocalPlayer then
-            local n = (p.Name or ""):lower()
-            local dname = (p.DisplayName or ""):lower()
-            if search ~= "" and (n:find(search, 1, true) or dname:find(search, 1, true)) then
-                found = true
-                perTarget[p.Name] = not perTarget[p.Name]
-                StarterGui:SetCore("ChatMakeSystemMessage", { Text = "[ESP] " .. p.Name .. " -> " .. (perTarget[p.Name] and "ON" or "OFF") })
+    search=(search or ""):lower()
+    local found=false
+    for _,p in ipairs(Players:GetPlayers()) do
+        if p~=LocalPlayer then
+            local n=(p.Name or ""):lower()
+            local dname=(p.DisplayName or ""):lower()
+            if search~="" and (n:find(search,1,true) or dname:find(search,1,true)) then
+                found=true
+                perTarget[p.Name]=not perTarget[p.Name]
+                StarterGui:SetCore("ChatMakeSystemMessage",{Text="[ESP] "..p.Name.." -> "..(perTarget[p.Name] and "ON" or "OFF")})
             end
         end
     end
-    if not found then
-        StarterGui:SetCore("ChatMakeSystemMessage", { Text = "[ESP] No match for '"..search.."'" })
-    end
+    if not found then StarterGui:SetCore("ChatMakeSystemMessage",{Text="[ESP] No match for '"..search.."'"}) end
 end
 
 local function processCommand(msg)
     if not msg then return end
-    local parts = string.split(msg, " ")
-    local cmd = (parts[1] or ""):lower()
-    if cmd == ".e" or cmd == "/e" or cmd == "e" then
-        if parts[2] and #parts[2] > 0 then toggleESPFor(parts[2]) else clearESP() end
+    local parts=string.split(msg," ")
+    local cmd=(parts[1] or ""):lower()
+    if cmd==".e" or cmd=="/e" or cmd=="e" then
+        if parts[2] and #parts[2]>0 then toggleESPFor(parts[2]) else clearESP() end
     end
 end
 
--- === TextChatCommand setup ===
+--// TextChatService hookup
 if TextChatService then
     local commandsFolder = TextChatService:FindFirstChild("TextChatCommands")
     if not commandsFolder then
-        commandsFolder = Instance.new("Folder")
-        commandsFolder.Name = "TextChatCommands"
-        commandsFolder.Parent = TextChatService
+        commandsFolder=Instance.new("Folder")
+        commandsFolder.Name="TextChatCommands"
+        commandsFolder.Parent=TextChatService
     end
-    local cmdName = "WaveESPCommand"
-    local cmd = commandsFolder:FindFirstChild(cmdName)
+    local cmdName="WaveESPCommand"
+    local cmd=commandsFolder:FindFirstChild(cmdName)
     if not cmd then
-        cmd = Instance.new("TextChatCommand")
-        cmd.Name = cmdName
-        cmd.PrimaryAlias = ".e"
-        cmd.SecondaryAlias = "/e"
-        cmd.Enabled = true
-        cmd.Parent = commandsFolder
+        cmd=Instance.new("TextChatCommand")
+        cmd.Name=cmdName
+        cmd.PrimaryAlias=".e"
+        cmd.SecondaryAlias="/e"
+        cmd.Enabled=true
+        cmd.Parent=commandsFolder
     end
     cmd.Triggered:Connect(function(a,b)
-        local message = nil
-        local uid = nil
-        pcall(function() if a and a.Message then message = a.Message end end)
-        pcall(function() if a and a.Text then message = a.Text end end)
-        pcall(function() if b and type(b)=="string" then message = b end end)
-        pcall(function() if a and a.UserId then uid = a.UserId end end)
-        pcall(function() if a and a.TextSource and a.TextSource.UserId then uid = a.TextSource.UserId end end)
-        if not message and a then message = tostring(a) end
-        if uid and uid == LocalPlayer.UserId then processCommand(message) end
+        local message
+        local uid
+        pcall(function() if a and a.Message then message=a.Message end end)
+        pcall(function() if a and a.Text then message=a.Text end end)
+        pcall(function() if b and type(b)=="string" then message=b end end)
+        pcall(function() if a and a.UserId then uid=a.UserId end end)
+        pcall(function() if a and a.TextSource and a.TextSource.UserId then uid=a.TextSource.UserId end end)
+        if not message and a then message=tostring(a) end
+        if uid and uid==LocalPlayer.UserId then processCommand(message) end
     end)
 end
 
--- Fallback: legacy chat
 pcall(function() LocalPlayer.Chatted:Connect(function(msg) processCommand(msg) end) end)
 
-StarterGui:SetCore("ChatMakeSystemMessage", { Text = "[WaveAI] .e or /e ready — type .e <partial> to toggle ESP, .e clears all. Q toggles Triggerbot." })
+StarterGui:SetCore("ChatMakeSystemMessage",{Text="[WaveAI] .e or /e ready — .e <name> toggles ESP, .e clears all. Q toggles Triggerbot."})
