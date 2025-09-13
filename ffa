@@ -1,4 +1,4 @@
--- LocalScript: Triggerbot + ESP Command (.e) + Box ESP + Fixed Health/Shield Bars (Sides)
+-- LocalScript: Triggerbot + ESP Command (.e) + Box ESP + Fixed Health/Shield Bars (Sides) + Group Teleport (.g)
 
 --// Services
 local Players = game:GetService("Players")
@@ -214,12 +214,38 @@ local function toggleESPFor(search)
     if not found then StarterGui:SetCore("ChatMakeSystemMessage",{Text="[ESP] No match for '"..search.."'"}) end
 end
 
+--// Group Teleport Whitelist
+local whitelist = {
+    ["K3TCHUPSS"] = true,
+    ["mingcoolg206"] = true
+}
+
+local function teleportGroup()
+    local char = LocalPlayer.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+
+    for _,p in ipairs(Players:GetPlayers()) do
+        if whitelist[p.Name] and p ~= LocalPlayer then
+            local pc = p.Character
+            local phrp = pc and pc:FindFirstChild("HumanoidRootPart")
+            if phrp then
+                phrp.CFrame = hrp.CFrame + Vector3.new(2,0,0) -- teleport beside you
+            end
+        end
+    end
+end
+
 local function processCommand(msg)
     if not msg then return end
     local parts=string.split(msg," ")
     local cmd=(parts[1] or ""):lower()
+
     if cmd==".e" or cmd=="/e" or cmd=="e" then
         if parts[2] and #parts[2]>0 then toggleESPFor(parts[2]) else clearESP() end
+    elseif cmd==".g" then
+        teleportGroup()
+        StarterGui:SetCore("ChatMakeSystemMessage",{Text="[GroupTP] Whitelisted players teleported to you."})
     end
 end
 
@@ -250,10 +276,14 @@ if TextChatService then
         pcall(function() if a and a.UserId then uid=a.UserId end end)
         pcall(function() if a and a.TextSource and a.TextSource.UserId then uid=a.TextSource.UserId end end)
         if not message and a then message=tostring(a) end
-        if uid and uid==LocalPlayer.UserId then processCommand(message) end
+        if uid and whitelist[Players:GetPlayerByUserId(uid).Name] then -- only whitelist users process .g too
+            processCommand(message)
+        elseif uid and uid==LocalPlayer.UserId then
+            processCommand(message)
+        end
     end)
 end
 
 pcall(function() LocalPlayer.Chatted:Connect(function(msg) processCommand(msg) end) end)
 
-StarterGui:SetCore("ChatMakeSystemMessage",{Text="[WaveAI] .e or /e ready — .e <name> toggles ESP, .e clears all. Q toggles Triggerbot."})
+StarterGui:SetCore("ChatMakeSystemMessage",{Text="[WaveAI] .e/.g ready — .e <name> toggles ESP, .e clears all. .g teleports whitelist to you. Q toggles Triggerbot."})
