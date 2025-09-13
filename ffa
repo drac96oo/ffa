@@ -1,346 +1,274 @@
--- Full VIP script: Commands + Triggerbot + Box ESP with Shield + .k kick
--- WaveAI: fixed chat hooking (Player.Chatted, DefaultChatSystemChatEvents, TextChatService)
--- Version 2.1: Removed faulty chat hook that was causing executor error.
-
+-- LocalScript: Triggerbot + ESP Command (.e) [Shield Bar Fix]
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TextChatService = (pcall(function() return game:GetService("TextChatService") end) and game:GetService("TextChatService")) or nil
+local StarterGui = game:GetService("StarterGui")
 local LocalPlayer = Players.LocalPlayer
-local Mouse = LocalPlayer:GetMouse()
 local Camera = workspace.CurrentCamera
+local Mouse = LocalPlayer:GetMouse()
 
-print("WaveAI: Script loaded successfully. Waiting for chat commands.")
-
-local VIPUsers = { "K3TCHUPSS", "alanoioil99" }
-local targetedPlayers = {}
-local espObjects = {}
-
-local DrawingAvailable = false
-pcall(function() if Drawing and Drawing.new then DrawingAvailable = true end end)
-if not DrawingAvailable then
-    print("WaveAI: Drawing library not available. ESP will not work.")
-end
-
-local function wtvp(pos3)
-    local a, onScreen = Camera:WorldToViewportPoint(pos3)
-    return Vector2.new(a.X, a.Y), onScreen, a.Z
-end
-
-local function createBoxDrawings()
-    if not DrawingAvailable then return nil end
-    local box = Drawing.new("Square")
-    local outline = Drawing.new("Square")
-    local txt = Drawing.new("Text")
-    local health = Drawing.new("Square")
-    local shield = Drawing.new("Square")
-
-    box.Thickness = 1 box.Filled = false box.Color = Color3.fromRGB(255,0,0) box.Visible = false
-    outline.Thickness = 3 outline.Filled = false outline.Color = Color3.new(0,0,0) outline.Visible = false
-    txt.Size = 13 txt.Color = Color3.fromRGB(255,255,255) txt.Center = true txt.Outline = true txt.Visible = false
-    health.Thickness = 4 health.Filled = true health.Color = Color3.fromRGB(0,255,0) health.Visible = false
-    shield.Thickness = 4 shield.Filled = true shield.Color = Color3.fromRGB(0,0,255) shield.Visible = false
-
-    return {Box=box,Outline=outline,Text=txt,Health=health,Shield=shield}
-end
-
-local function addESP(player)
-    if espObjects[player] then return end
-    if not targetedPlayers[player.Name] then return end
-    local drawings = createBoxDrawings()
-    if drawings then
-        espObjects[player] = { mode="drawing", data=drawings }
-    end
-end
-
-local function removeESP(player)
-    local obj = espObjects[player]
-    if not obj then return end
-    local d = obj.data
-    for _,v in pairs(d) do if v and v.Remove then pcall(function() v:Remove() end) end end
-    espObjects[player] = nil
-end
-
-if DrawingAvailable then
-    RunService:BindToRenderStep("WaveBoxESP", Enum.RenderPriority.Camera.Value, function()
-        for player,obj in pairs(espObjects) do
-            local d = obj.data
-            if not player or not player.Character then
-                for _,v in pairs(d) do if v then v.Visible = false end end
-            else
-                local root = player.Character:FindFirstChild("HumanoidRootPart") or player.Character.PrimaryPart
-                local hum = player.Character:FindFirstChildOfClass("Humanoid")
-                if root and hum then
-                    local screenPos, onScreen, depth = wtvp(root.Position)
-                    if onScreen and depth > 0 then
-                        local scaleFactor = 1 / (depth * math.tan(math.rad(Camera.FieldOfView/2))*2)*1000
-                        local width = math.max(12, math.floor(4*scaleFactor))
-                        local height = math.max(14, math.floor(5*scaleFactor))
-
-                        d.Box.Size = Vector2.new(width,height)
-                        d.Box.Position = Vector2.new(screenPos.X-width/2,screenPos.Y-height/2)
-                        d.Box.Visible = true
-                        d.Box.Color = (player.TeamColor and player.TeamColor.Color) or Color3.fromRGB(255,0,0)
-
-                        d.Outline.Size = d.Box.Size
-                        d.Outline.Position = d.Box.Position
-                        d.Outline.Visible = true
-
-                        d.Text.Text = (player.DisplayName or player.Name).." (@"..player.Name..")"
-                        d.Text.Position = Vector2.new(screenPos.X, screenPos.Y - height - 10)
-                        d.Text.Visible = true
-
-                        local healthPercent = math.clamp(hum.Health / (hum.MaxHealth or 1),0,1)
-                        d.Health.Size = Vector2.new(math.max(1,math.floor(width*healthPercent)),4)
-                        d.Health.Position = Vector2.new(screenPos.X-width/2, screenPos.Y+height/2+2)
-                        d.Health.Color = (healthPercent>0.6 and Color3.fromRGB(0,255,0)) or (healthPercent>0.3 and Color3.fromRGB(255,255,0)) or Color3.fromRGB(255,0,0)
-                        d.Health.Visible = true
-
-                        local state = player:FindFirstChild("DataFolder") and player.DataFolder:FindFirstChild("Information")
-                        local shieldObj = state and state:FindFirstChild("ShieldSave")
-                        local shieldPercent = 0
-                        if shieldObj then
-                            if shieldObj:IsA("NumberValue") then
-                                shieldPercent = math.clamp(shieldObj.Value / (shieldObj.MaxValue or 100),0,1)
-                            elseif shieldObj:IsA("IntValue") then
-                                shieldPercent = math.clamp(shieldObj.Value/100,0,1)
-                            elseif shieldObj:IsA("BoolValue") then
-                                shieldPercent = shieldObj.Value and 1 or 0
-                            end
-                        end
-                        d.Shield.Size = Vector2.new(math.max(1, math.floor(width*shieldPercent)),4)
-                        d.Shield.Position = Vector2.new(screenPos.X-width/2, screenPos.Y+height/2+8)
-                        d.Shield.Visible = shieldPercent>0
-                    else
-                        for _,v in pairs(d) do if v then v.Visible=false end end
-                    end
-                else
-                    for _,v in pairs(d) do if v then v.Visible=false end end
-                end
-            end
-        end
-    end)
-end
-
-local TriggerBot = { Enabled=false, Blacklist = { "Knife" } }
+-- === Triggerbot (Q toggle) ===
+local TriggerBot = { Enabled = false, Blacklist = { "Knife" } }
 local BlacklistCache = {}
-for _,name in ipairs(TriggerBot.Blacklist) do BlacklistCache[name:lower()] = true end
+for _, n in ipairs(TriggerBot.Blacklist) do BlacklistCache[n:lower()] = true end
+local function isBlacklisted(tool) return tool and BlacklistCache[tool.Name:lower()] end
 
-local function IsToolBlacklisted(tool)
-    return tool and BlacklistCache[tool.Name:lower()]
-end
-
-local function GetTargetFromMouse()
+local function getMouseTarget()
     local target = Mouse.Target
     if not target then return nil end
-    for _,p in ipairs(Players:GetPlayers()) do
-        if p.Character and target:IsDescendantOf(p.Character) and p ~= LocalPlayer then
-            return p
-        end
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer and p.Character and target:IsDescendantOf(p.Character) then return p end
     end
 end
-
-local function GetEquippedTool()
-    local char = LocalPlayer.Character
-    if not char then return nil end
-    for _, tool in ipairs(char:GetChildren()) do
-        if tool:IsA("Tool") and not IsToolBlacklisted(tool) then
-            return tool
-        end
-    end
-end
-
-local function ExecuteTrigger()
-    if not TriggerBot.Enabled then return end
-    local target = GetTargetFromMouse()
-    if not target then return end
-    local tool = GetEquippedTool()
-    if tool then pcall(function() tool:Activate() end) end
+local function getEquippedTool()
+    local c = LocalPlayer.Character
+    if not c then return nil end
+    for _, v in ipairs(c:GetChildren()) do if v:IsA("Tool") and not isBlacklisted(v) then return v end end
 end
 
 UserInputService.InputBegan:Connect(function(input, gp)
     if gp then return end
     if input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode == Enum.KeyCode.Q then
         TriggerBot.Enabled = not TriggerBot.Enabled
+        StarterGui:SetCore("ChatMakeSystemMessage", { Text = "[TriggerBot] " .. (TriggerBot.Enabled and "ON" or "OFF") })
     end
 end)
-RunService.RenderStepped:Connect(ExecuteTrigger)
 
-local function onMessage(sender,msg)
-    local vip = false
-    for _,v in ipairs(VIPUsers) do if sender:lower()==v:lower() then vip=true break end end
-    if not vip then return end
+RunService.RenderStepped:Connect(function()
+    if not TriggerBot.Enabled then return end
+    local tgt = getMouseTarget()
+    if not tgt then return end
+    local tool = getEquippedTool()
+    if tool then pcall(function() tool:Activate() end) end
+end)
 
-    local args = msg:split(" ")
-    local cmd = args[1] and args[1]:lower() or ""
-    print("WaveAI: VIP command '"..cmd.."' detected.")
+-- === Drawing ESP setup ===
+local DrawingAvailable = false
+pcall(function() if Drawing and Drawing.new then DrawingAvailable = true end end)
+if not DrawingAvailable then
+    StarterGui:SetCore("ChatMakeSystemMessage", { Text = "[ESP] Drawing library not available — ESP disabled." })
+    return
+end
 
-    if cmd==".h" and args[2] then
-        local partial = args[2]:lower()
-        local found = false
-        for _,p in ipairs(Players:GetPlayers()) do
-            if (p.Name:lower():find(partial) or p.DisplayName:lower():find(partial)) and not targetedPlayers[p.Name] then
-                pcall(addESP, p)
-                found = true
-                break
-            end
-        end
-        if not found then
-            print("WaveAI: .h -> No player found with name '"..args[2].."'.")
-        else
-            print("WaveAI: .h -> ESP added for player '"..args[2].."'.")
-        end
-    elseif cmd==".j" then
-        local partial = args[2] and args[2]:lower()
-        if partial then
-            for _,p in ipairs(Players:GetPlayers()) do
-                if (p.Name:lower():find(partial) or p.DisplayName:lower():find(partial)) and targetedPlayers[p.Name] then
-                    targetedPlayers[p.Name]=nil
-                    removeESP(p)
-                    print("WaveAI: .j -> ESP removed for player '"..args[2].."'.")
-                    break
-                end
-            end
-        else
-            for name,_ in pairs(targetedPlayers) do
-                local p = Players:FindFirstChild(name)
-                if p then removeESP(p) end
-                targetedPlayers[name]=nil
-            end
-            print("WaveAI: .j -> Cleared all ESP.")
-        end
+local esp = {}       -- [player] -> {Text, HealthBG, HealthBar, ShieldBG, ShieldBar}
+local perTarget = {} -- players toggled on
 
-    elseif cmd == ".k" and args[2] then
-        local target = Players:FindFirstChild(args[2])
-        if target then
-            local success, err = pcall(function() target:Kick("Kicked by VIP: "..sender) end)
-            if success then print("WaveAI: .k -> Successfully executed kick on '"..target.Name.."'")
-            else print("WaveAI: .k -> Error executing kick on '"..target.Name.."': "..tostring(err)) end
+local function makeESPFor(p)
+    if esp[p] then return end
+
+    -- Name tag
+    local nameText = Drawing.new("Text")
+    nameText.Size = 12
+    nameText.Color = Color3.fromRGB(255, 0, 0)
+    nameText.Center = true
+    nameText.Outline = true
+    nameText.Visible = false
+
+    -- Health bar background
+    local healthBG = Drawing.new("Square")
+    healthBG.Size = Vector2.new(40, 6)
+    healthBG.Filled = true
+    healthBG.Color = Color3.fromRGB(60, 60, 60)
+    healthBG.Visible = false
+
+    -- Health bar foreground
+    local healthBar = Drawing.new("Square")
+    healthBar.Filled = true
+    healthBar.Color = Color3.fromRGB(0, 255, 0)
+    healthBar.Visible = false
+
+    -- Shield bar background
+    local shieldBG = Drawing.new("Square")
+    shieldBG.Size = Vector2.new(40, 6)
+    shieldBG.Filled = true
+    shieldBG.Color = Color3.fromRGB(60, 60, 60)
+    shieldBG.Visible = false
+
+    -- Shield bar foreground
+    local shieldBar = Drawing.new("Square")
+    shieldBar.Filled = true
+    shieldBar.Color = Color3.fromRGB(0, 150, 255)
+    shieldBar.Visible = false
+
+    esp[p] = {
+        Text = nameText,
+        HealthBG = healthBG,
+        HealthBar = healthBar,
+        ShieldBG = shieldBG,
+        ShieldBar = shieldBar
+    }
+end
+
+local function removeESPFor(p)
+    if esp[p] then
+        pcall(function()
+            esp[p].Text:Remove()
+            esp[p].HealthBG:Remove()
+            esp[p].HealthBar:Remove()
+            esp[p].ShieldBG:Remove()
+            esp[p].ShieldBar:Remove()
+        end)
+        esp[p] = nil
+    end
+end
+
+for _, p in ipairs(Players:GetPlayers()) do if p ~= LocalPlayer then makeESPFor(p) end end
+Players.PlayerAdded:Connect(function(p) if p ~= LocalPlayer then makeESPFor(p) end end)
+Players.PlayerRemoving:Connect(function(p) removeESPFor(p) perTarget[p.Name] = nil end)
+
+local function worldToViewportVec(pos)
+    local a, on = Camera:WorldToViewportPoint(pos)
+    return Vector2.new(a.X, a.Y), on
+end
+
+RunService:BindToRenderStep("WaveESP_Render", Enum.RenderPriority.Camera.Value, function()
+    for p, d in pairs(esp) do
+        local show = perTarget[p.Name]
+        if not show then
+            d.Text.Visible = false
+            d.HealthBG.Visible = false
+            d.HealthBar.Visible = false
+            d.ShieldBG.Visible = false
+            d.ShieldBar.Visible = false
         else
-            print("WaveAI: .k -> Target player '"..args[2].."' not found.")
-        end
-    elseif cmd == ".g" and args[2] then
-        local target = Players:FindFirstChild(args[2])
-        if target and LocalPlayer.Character and target.Character then
-            local myRoot = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-            local targetRoot = target.Character:FindFirstChild("HumanoidRootPart")
-            if myRoot and targetRoot then
-                local success, err = pcall(function() myRoot.CFrame = targetRoot.CFrame end)
-                if success then print("WaveAI: .g -> Teleported to '"..target.Name.."'.")
-                else print("WaveAI: .g -> Teleport error: "..tostring(err)) end
-            end
-        else
-            print("WaveAI: .g -> Target player '"..args[2].."' not found or character missing.")
-        end
-    elseif cmd == ".f" then
-        for _,p in ipairs(Players:GetPlayers()) do
-            if p.Character then
-                local root = p.Character:FindFirstChild("HumanoidRootPart")
-                if root then pcall(function() root.Anchored = true end) end
-            end
-        end
-        print("WaveAI: .f -> Executed freeze command.")
-    elseif cmd == ".u" then
-        for _,p in ipairs(Players:GetPlayers()) do
-            if p.Character then
-                local root = p.Character:FindFirstChild("HumanoidRootPart")
-                if root then pcall(function() root.Anchored = false end) end
-            end
-        end
-        print("WaveAI: .u -> Executed unfreeze command.")
-    elseif cmd == ".tp" and args[2] then
-        local target = Players:FindFirstChild(args[2])
-        if target and LocalPlayer.Character and target.Character then
-            local myRoot = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-            local targetRoot = target.Character:FindFirstChild("HumanoidRootPart")
-            if myRoot and targetRoot then
-                local success, err = pcall(function() myRoot.CFrame = targetRoot.CFrame + Vector3.new(0,3,0) end)
-                if success then print("WaveAI: .tp -> Teleported to '"..target.Name.."' with offset.")
-                else print("WaveAI: .tp -> Teleport error: "..tostring(err)) end
-            end
-        else
-            print("WaveAI: .tp -> Target player '"..args[2].."' not found or character missing.")
-        end
-    elseif cmd == ".fling" then
-        for _,p in ipairs(Players:GetPlayers()) do
-            if p.Character then
-                local root = p.Character:FindFirstChild("HumanoidRootPart")
-                if root then
-                    local bv = Instance.new("BodyVelocity")
-                    bv.Velocity = Vector3.new(math.random(-1500,1500),800,math.random(-1500,1500))
-                    bv.MaxForce = Vector3.new(1e6,1e6,1e6)
-                    bv.Parent = root
-                    task.delay(0.3,function() pcall(function() if bv.Parent then bv:Destroy() end end) end)
-                end
-            end
-        end
-        print("WaveAI: .fling -> Executed fling command.")
-    elseif cmd == ".r" then
-        for _,p in ipairs(Players:GetPlayers()) do
-            if p.Character then
+            if p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+                local hrp = p.Character.HumanoidRootPart
                 local hum = p.Character:FindFirstChildOfClass("Humanoid")
-                if hum then pcall(function() hum.Health = 0 end) end
+                if hrp and hum then
+                    local pos, on = worldToViewportVec(hrp.Position + Vector3.new(0, 3, 0))
+                    if on then
+                        -- Name
+                        d.Text.Text = (p.DisplayName or p.Name) .. " (@" .. p.Name .. ")"
+                        d.Text.Position = pos
+                        d.Text.Visible = true
+
+                        -- Health bar
+                        local barW, barH = 40, 6
+                        local healthPercent = math.clamp(hum.Health / (hum.MaxHealth or 1), 0, 1)
+                        d.HealthBG.Position = Vector2.new(pos.X - barW/2, pos.Y - 15)
+                        d.HealthBG.Size = Vector2.new(barW, barH)
+                        d.HealthBG.Visible = true
+
+                        d.HealthBar.Position = d.HealthBG.Position
+                        d.HealthBar.Size = Vector2.new(barW * healthPercent, barH)
+                        d.HealthBar.Color = (healthPercent > 0.6 and Color3.fromRGB(0,255,0))
+                            or (healthPercent > 0.3 and Color3.fromRGB(255,255,0))
+                            or Color3.fromRGB(255,0,0)
+                        d.HealthBar.Visible = true
+
+                        -- Shield bar (above health bar) with proper VIP check
+                        local shieldPercent = 0
+                        local state = p:FindFirstChild("DataFolder") and p.DataFolder:FindFirstChild("Information")
+                        local shieldObj = state and state:FindFirstChild("ShieldSave")
+                        if shieldObj then
+                            if shieldObj:IsA("NumberValue") then
+                                shieldPercent = math.clamp(shieldObj.Value / (shieldObj.MaxValue or 100),0,1)
+                            elseif shieldObj:IsA("IntValue") then
+                                shieldPercent = math.clamp(shieldObj.Value / 100,0,1)
+                            elseif shieldObj:IsA("BoolValue") then
+                                shieldPercent = shieldObj.Value and 1 or 0
+                            end
+                        end
+
+                        d.ShieldBG.Position = Vector2.new(pos.X - barW/2, pos.Y - 23)
+                        d.ShieldBG.Size = Vector2.new(barW, barH)
+                        d.ShieldBG.Visible = shieldObj ~= nil
+
+                        d.ShieldBar.Position = d.ShieldBG.Position
+                        d.ShieldBar.Size = Vector2.new(barW * shieldPercent, barH)
+                        d.ShieldBar.Visible = shieldPercent > 0
+                    else
+                        d.Text.Visible = false
+                        d.HealthBG.Visible = false
+                        d.HealthBar.Visible = false
+                        d.ShieldBG.Visible = false
+                        d.ShieldBar.Visible = false
+                    end
+                else
+                    d.Text.Visible = false
+                    d.HealthBG.Visible = false
+                    d.HealthBar.Visible = false
+                    d.ShieldBG.Visible = false
+                    d.ShieldBar.Visible = false
+                end
+            else
+                d.Text.Visible = false
+                d.HealthBG.Visible = false
+                d.HealthBar.Visible = false
+                d.ShieldBG.Visible = false
+                d.ShieldBar.Visible = false
             end
         end
-        print("WaveAI: .r -> Executed kill command.")
-    else
-        print("WaveAI: Command '"..cmd.."' not recognized or arguments missing.")
+    end
+end)
+
+-- === Commands ===
+local function clearESP()
+    for name,_ in pairs(perTarget) do perTarget[name] = nil end
+    StarterGui:SetCore("ChatMakeSystemMessage", { Text = "[ESP] Cleared all targets." })
+end
+
+local function toggleESPFor(search)
+    search = (search or ""):lower()
+    local found = false
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer then
+            local n = (p.Name or ""):lower()
+            local dname = (p.DisplayName or ""):lower()
+            if search ~= "" and (n:find(search, 1, true) or dname:find(search, 1, true)) then
+                found = true
+                perTarget[p.Name] = not perTarget[p.Name]
+                StarterGui:SetCore("ChatMakeSystemMessage", { Text = "[ESP] " .. p.Name .. " -> " .. (perTarget[p.Name] and "ON" or "OFF") })
+            end
+        end
+    end
+    if not found then
+        StarterGui:SetCore("ChatMakeSystemMessage", { Text = "[ESP] No match for '"..search.."'" })
     end
 end
 
-for _,p in ipairs(Players:GetPlayers()) do
-    p.Chatted:Connect(function(msg, rec)
-        pcall(function() onMessage(p.Name, tostring(msg or "")) end)
-    end)
-end
-Players.PlayerAdded:Connect(function(p)
-    p.Chatted:Connect(function(msg, rec)
-        pcall(function() onMessage(p.Name, tostring(msg or "")) end)
-    end)
-end)
-
-local success, defaultChat = pcall(function()
-    return ReplicatedStorage:FindFirstChild("DefaultChatSystemChatEvents")
-end)
-if success and defaultChat then
-    local doneFilter = defaultChat:FindFirstChild("OnMessageDoneFiltering")
-    if doneFilter and doneFilter:IsA("RemoteEvent") then
-        doneFilter.OnClientEvent:Connect(function(data)
-            pcall(function()
-                local msg = data.Message or data.message or tostring(data)
-                local from = data.FromSpeaker or data.fromSpeaker or data.Speaker or data.From or nil
-                if from then
-                    onMessage(tostring(from), tostring(msg))
-                end
-            end)
-        end)
+local function processCommand(msg)
+    if not msg then return end
+    local parts = string.split(msg, " ")
+    local cmd = (parts[1] or ""):lower()
+    if cmd == ".e" or cmd == "/e" or cmd == "e" then
+        if parts[2] and #parts[2] > 0 then toggleESPFor(parts[2]) else clearESP() end
     end
 end
 
--- Removed TextChatService hook due to executor error
---[[
-if TextChatService and TextChatService.OnIncomingMessage then
-    pcall(function()
-        TextChatService.OnIncomingMessage:Connect(function(textChatMessage)
-            pcall(function()
-                local txt = textChatMessage.Text
-                local senderName
-                pcall(function()
-                    if textChatMessage.TextSource then
-                        local sender = Players:GetPlayerByUserId(textChatMessage.TextSource.UserId)
-                        if sender then senderName = sender.Name end
-                    end
-                end)
-                if senderName and txt then
-                    onMessage(tostring(senderName), tostring(txt))
-                end
-            end)
-        end)
+-- === TextChatCommand setup ===
+if TextChatService then
+    local commandsFolder = TextChatService:FindFirstChild("TextChatCommands")
+    if not commandsFolder then
+        commandsFolder = Instance.new("Folder")
+        commandsFolder.Name = "TextChatCommands"
+        commandsFolder.Parent = TextChatService
+    end
+    local cmdName = "WaveESPCommand"
+    local cmd = commandsFolder:FindFirstChild(cmdName)
+    if not cmd then
+        cmd = Instance.new("TextChatCommand")
+        cmd.Name = cmdName
+        cmd.PrimaryAlias = ".e"
+        cmd.SecondaryAlias = "/e"
+        cmd.Enabled = true
+        cmd.Parent = commandsFolder
+    end
+    cmd.Triggered:Connect(function(a,b)
+        local message = nil
+        local uid = nil
+        pcall(function() if a and a.Message then message = a.Message end end)
+        pcall(function() if a and a.Text then message = a.Text end end)
+        pcall(function() if b and type(b)=="string" then message = b end end)
+        pcall(function() if a and a.UserId then uid = a.UserId end end)
+        pcall(function() if a and a.TextSource and a.TextSource.UserId then uid = a.TextSource.UserId end end)
+        if not message and a then message = tostring(a) end
+        if uid and uid == LocalPlayer.UserId then processCommand(message) end
     end)
 end
-]]
 
-Players.PlayerRemoving:Connect(function(p)
-    if targetedPlayers[p.Name] then targetedPlayers[p.Name]=nil end
-    removeESP(p)
-end)
+-- Fallback: legacy chat
+pcall(function() LocalPlayer.Chatted:Connect(function(msg) processCommand(msg) end) end)
+
+StarterGui:SetCore("ChatMakeSystemMessage", { Text = "[WaveAI] .e or /e ready — type .e <partial> to toggle ESP, .e clears all. Q toggles Triggerbot." })
